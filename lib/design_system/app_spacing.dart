@@ -1,0 +1,30 @@
+/// 출처: 02 레이아웃. 값은 원문의 px 수치입니다.
+abstract final class AppSpacing {
+  static const space1 = 4.0;
+  static const space2 = 8.0;
+  static const space3 = 12.0;
+  static const space4 = 16.0;
+  static const space5 = 20.0;
+  static const space6 = 24.0;
+  static const space7 = 32.0;
+  static const space8 = 40.0;
+  static const space9 = 56.0;
+  static const space10 = 72.0;
+  static const screenHorizontal = 24.0;
+  static const sectionGapMin = 32.0;
+  static const sectionGapMax = 44.0;
+  static const sectionInnerGapMin = 12.0;
+  static const sectionInnerGapMax = 22.0;
+  static const mapCardHorizontal = 12.0;
+  static const mapCardBottom = 26.0;
+  static const compactMapCardHorizontal = 10.0;
+  static const largeMapCardHorizontal = 14.0;
+  static const mapControlAboveCard = 14.0;
+  static const mapControlGap = 10.0;
+  static const mapScaleLeft = 18.0;
+  static const topControlSafeAreaGapMin = 4.0;
+  static const topControlSafeAreaGapMax = 6.0;
+  static const startSlabLeft = 22.0;
+  static const startSlabRight = 16.0;
+  static const buttonIconGap = 8.0;
+}
