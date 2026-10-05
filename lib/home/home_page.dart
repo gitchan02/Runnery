@@ -2,9 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../design_system/app_colors.dart';
+import '../design_system/app_motion.dart';
 import '../design_system/app_text_styles.dart';
 import '../profile/profile_mail_page.dart';
 import '../record/list/record_list_page.dart';
+import 'running/running_home_page.dart';
 
 /// 로그인 후 홈. 기본 수치와 경로는 디자인 시안의 예시 데이터입니다.
 class HomePage extends StatelessWidget {
@@ -26,6 +28,25 @@ class HomePage extends StatelessWidget {
     } else if (label == '기록') {
       Navigator.of(context).pushReplacement<void, void>(
         MaterialPageRoute(builder: (_) => const RecordListPage()),
+      );
+    } else if (label == '러닝') {
+      // 홈→러닝 시작: 아래에서 올라오기 300ms.
+      Navigator.of(context).push<void>(
+        PageRouteBuilder(
+          transitionDuration: AppMotion.startSheet,
+          reverseTransitionDuration: AppMotion.startSheet,
+          pageBuilder: (_, _, _) => const RunningHomePage(),
+          transitionsBuilder: (_, animation, _, child) => SlideTransition(
+            position: Tween(begin: const Offset(0, 1), end: Offset.zero)
+                .animate(
+                  CurvedAnimation(
+                    parent: animation,
+                    curve: AppMotion.pushSlideCurve,
+                  ),
+                ),
+            child: child,
+          ),
+        ),
       );
     } else {
       ScaffoldMessenger.of(context)
