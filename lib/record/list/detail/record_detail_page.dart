@@ -1,8 +1,19 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:maplibre_gl/maplibre_gl.dart' show LatLng;
 
 import '../../../design_system/app_text_styles.dart';
+import '../../../home/running/running_home_page.dart'
+    show
+        MapMarker,
+        MapMarkerKind,
+        MapZoom,
+        RouteWidth,
+        RunneryMap,
+        RunneryMapController;
+import '../../models/running_record.dart';
+export '../../models/running_record.dart';
 
 const recordBackground = Color(0xFF0A0B0B);
 const recordMuted = Color(0xFF7D8890);
@@ -28,66 +39,6 @@ TextStyle recordNumber(double size, {Color color = Colors.white}) =>
       height: 1.15,
       letterSpacing: -1,
     );
-
-/// 저장된 GPS 위도/경도를 그대로 전달할 수 있는 경로 모델.
-@immutable
-class RecordCoordinate {
-  const RecordCoordinate(this.latitude, this.longitude);
-  final double latitude;
-  final double longitude;
-}
-
-@immutable
-class RunningRecord {
-  const RunningRecord({
-    required this.id,
-    required this.startedAt,
-    required this.distanceKm,
-    required this.movingSeconds,
-    required this.calories,
-    required this.route,
-    this.pauseSeconds = 178,
-    this.place = '여의도 한강공원',
-    this.startPlace = '여의도 한강공원 이벤트광장',
-    this.endPlace = '여의도 한강공원 물빛광장',
-    this.memo = '',
-    this.speeds = const [],
-    this.splitSeconds = const [],
-    this.pauseFractions = const [],
-  });
-  final String id;
-  final DateTime startedAt;
-  final double distanceKm;
-  final int movingSeconds, pauseSeconds, calories;
-  final String place, startPlace, endPlace, memo;
-  final List<RecordCoordinate> route;
-
-  /// 시간 순서의 km/h 샘플과 1km별 초 단위 페이스. 데이터 소스 연결 지점.
-  final List<double> speeds;
-  final List<int> splitSeconds;
-
-  /// 전체 경로에서 일시정지한 위치(0~1).
-  final List<double> pauseFractions;
-  DateTime get endedAt =>
-      startedAt.add(Duration(seconds: movingSeconds + pauseSeconds));
-  int get paceSeconds =>
-      distanceKm > 0 ? (movingSeconds / distanceKm).round() : 0;
-  double get averageSpeed =>
-      movingSeconds > 0 ? distanceKm / movingSeconds * 3600 : 0;
-  double get maxSpeed =>
-      speeds.isEmpty ? averageSpeed : speeds.reduce(math.max);
-  String get dateLabel =>
-      '${startedAt.month}월 ${startedAt.day}일 ${const ['월', '화', '수', '목', '금', '토', '일'][startedAt.weekday - 1]}요일';
-  String get durationLabel => durationWords(movingSeconds);
-  String get paceLabel => paceText(paceSeconds);
-}
-
-String clockText(DateTime time) =>
-    '${time.hour < 12 ? '오전' : '오후'} ${time.hour % 12 == 0 ? 12 : time.hour % 12}:${time.minute.toString().padLeft(2, '0')}';
-String paceText(int seconds) =>
-    "${seconds ~/ 60}'${(seconds % 60).toString().padLeft(2, '0')}\"";
-String durationWords(int seconds) =>
-    '${seconds >= 3600 ? '${seconds ~/ 3600}시간 ' : ''}${seconds ~/ 60 % 60}분 ${(seconds % 60).toString().padLeft(2, '0')}초';
 
 /// 시안에 맞춘 예시 저장소. 실제 조회 결과를 각 페이지의 records에 주입합니다.
 final demoRunningRecords = <RunningRecord>[
@@ -249,12 +200,17 @@ List<Offset> _project(List<RecordCoordinate> coordinates, Rect bounds) {
       .toList();
 }
 
-Path _polyline(List<Offset> points) {
+Path _polyline(List<Offset> points, [List<RecordCoordinate>? coordinates]) {
   final path = Path();
   if (points.isNotEmpty) {
     path.moveTo(points.first.dx, points.first.dy);
-    for (final p in points.skip(1)) {
-      path.lineTo(p.dx, p.dy);
+    for (var i = 1; i < points.length; i++) {
+      final p = points[i];
+      if (coordinates != null && coordinates[i].startsSegment) {
+        path.moveTo(p.dx, p.dy);
+      } else {
+        path.lineTo(p.dx, p.dy);
+      }
     }
   }
   return path;
@@ -283,7 +239,7 @@ class _MiniRoutePainter extends CustomPainter {
         Paint()..color = recordOrange,
       );
     } else {
-      canvas.drawPath(_polyline(points), paint);
+      canvas.drawPath(_polyline(points, coordinates), paint);
     }
   }
 
@@ -293,28 +249,87 @@ class _MiniRoutePainter extends CustomPainter {
       oldDelegate.strokeWidth != strokeWidth;
 }
 
-/// 임시 벡터 지도. 실제 지도 연동 시 이 위젯만 지도 SDK로 교체하면 됩니다.
+/// 저장된 GPS 경로 미리보기. [basemap]이면 실제 지도 위에 경로를 그립니다.
 class RecordRouteMap extends StatelessWidget {
   const RecordRouteMap({
     super.key,
     required this.record,
     this.detailed = false,
     this.borderRadius = 20,
+    this.basemap = false,
+    this.interactive = false,
   });
   final RunningRecord record;
   final bool detailed;
   final double borderRadius;
+
+  /// 큰 카드에서만 true. 작은 썸네일은 지도 엔진 없이 경로만 그립니다.
+  final bool basemap;
+  final bool interactive;
+
+  /// 앱 시작 시 true로 켭니다. 지도 엔진이 없는 위젯 테스트에서는 꺼 둡니다.
+  static bool basemapEnabled = false;
+
   @override
   Widget build(BuildContext context) => Semantics(
-    label: '${record.place} 예시 지도 및 러닝 경로',
+    label: '저장된 GPS 경로 미리보기',
     child: ClipRRect(
       borderRadius: BorderRadius.circular(borderRadius),
-      child: CustomPaint(
-        painter: _RecordMapPainter(record.route, detailed),
-        size: Size.infinite,
-      ),
+      child: basemap && basemapEnabled && record.route.isNotEmpty
+          ? _RecordBasemap(route: record.route, interactive: interactive)
+          : CustomPaint(
+              painter: _RecordMapPainter(record.route, detailed),
+              size: Size.infinite,
+            ),
     ),
   );
+}
+
+class _RecordBasemap extends StatefulWidget {
+  const _RecordBasemap({required this.route, required this.interactive});
+  final List<RecordCoordinate> route;
+  final bool interactive;
+
+  @override
+  State<_RecordBasemap> createState() => _RecordBasemapState();
+}
+
+class _RecordBasemapState extends State<_RecordBasemap> {
+  final _controller = RunneryMapController();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final points = [
+      for (final p in widget.route) LatLng(p.latitude, p.longitude),
+    ];
+    // 일시정지 등으로 끊긴 구간은 이어 그리지 않습니다.
+    final segments = <List<LatLng>>[];
+    for (var i = 0; i < points.length; i++) {
+      if (i == 0 || widget.route[i].startsSegment) segments.add([]);
+      segments.last.add(points[i]);
+    }
+    return RunneryMap(
+      controller: _controller,
+      initialCenter: points.first,
+      initialZoom: MapZoom.basic,
+      interactive: widget.interactive,
+      // 러닝 결과 화면의 지도와 같은 경로 표현: 검은 테두리의 주황 선 + 출발·도착 마커.
+      routeWidth: RouteWidth.detail,
+      route: segments,
+      markers: [
+        MapMarker(points.first, MapMarkerKind.start),
+        if (points.length >= 2) MapMarker(points.last, MapMarkerKind.finish),
+      ],
+      fitPoints: points,
+      fitPadding: const EdgeInsets.all(28),
+    );
+  }
 }
 
 class _RecordMapPainter extends CustomPainter {
@@ -329,71 +344,6 @@ class _RecordMapPainter extends CustomPainter {
     canvas.drawRect(
       const Rect.fromLTWH(0, 0, 342, 200),
       Paint()..color = const Color(0xFF1E2633),
-    );
-    for (var y = -20.0; y < 240; y += 19) {
-      for (var x = -20.0; x < 380; x += 16) {
-        canvas.drawRect(
-          Rect.fromLTWH(x + 3, y + 3, 6, 9),
-          Paint()..color = const Color(0xFF293342),
-        );
-      }
-      canvas.drawLine(
-        Offset(0, y),
-        Offset(342, y + 20),
-        Paint()
-          ..color = const Color(0xFF363E4B)
-          ..strokeWidth = 2,
-      );
-    }
-    for (var x = 0.0; x < 390; x += 43) {
-      canvas.drawLine(
-        Offset(x, 0),
-        Offset(x - 20, 200),
-        Paint()
-          ..color = const Color(0xFF505C6D)
-          ..strokeWidth = 3,
-      );
-    }
-    final river = Path()
-      ..moveTo(-10, 57)
-      ..lineTo(352, 30)
-      ..lineTo(352, 146)
-      ..lineTo(-10, 177)
-      ..close();
-    canvas.drawPath(
-      river,
-      Paint()
-        ..color = const Color(0xFF1C4735)
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 22,
-    );
-    canvas.drawPath(river, Paint()..color = const Color(0xFF173C5C));
-    for (final y in [43.0, 181.0]) {
-      canvas.drawLine(
-        Offset(-10, y),
-        Offset(352, y - 29),
-        Paint()
-          ..color = const Color(0xFF101B24)
-          ..strokeWidth = 10,
-      );
-      canvas.drawLine(
-        Offset(-10, y),
-        Offset(352, y - 29),
-        Paint()
-          ..color = const Color(0xFF627181)
-          ..strokeWidth = 5,
-      );
-    }
-    final rail = Path()
-      ..moveTo(250, -10)
-      ..lineTo(284, 161)
-      ..quadraticBezierTo(300, 192, 225, 201);
-    canvas.drawPath(
-      rail,
-      Paint()
-        ..color = const Color(0xFF8470BE)
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 2,
     );
     final physicalBounds = detailed
         ? Rect.fromLTWH(
@@ -417,7 +367,7 @@ class _RecordMapPainter extends CustomPainter {
       (2.8, recordOrange),
     ]) {
       canvas.drawPath(
-        _polyline(points),
+        _polyline(points, route),
         Paint()
           ..color = style.$2
           ..strokeWidth = style.$1
@@ -425,34 +375,6 @@ class _RecordMapPainter extends CustomPainter {
           ..strokeJoin = StrokeJoin.round
           ..strokeCap = StrokeCap.round,
       );
-    }
-    void label(String text, Offset p, double fontSize, Color color) {
-      final tp = TextPainter(
-        text: TextSpan(
-          text: text,
-          style: TextStyle(
-            fontFamily: AppTextStyles.bodyFontFamily,
-            fontSize: fontSize,
-            color: color,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-        textDirection: TextDirection.ltr,
-      )..layout();
-      tp.paint(canvas, p);
-    }
-
-    if (size.width > 150) {
-      label('한  강', const Offset(274, 79), 17, const Color(0xFF78A7CB));
-      canvas.drawRRect(
-        RRect.fromRectAndRadius(
-          const Rect.fromLTWH(118, 91, 15, 16),
-          const Radius.circular(5),
-        ),
-        Paint()..color = const Color(0xFF399A60),
-      );
-      label('♣', const Offset(121, 92), 12, Colors.white);
-      label('밤섬', const Offset(137, 94), 10, Colors.white);
     }
     if (points.isNotEmpty) {
       for (final point in [points.first, points.last]) {
@@ -472,16 +394,6 @@ class _RecordMapPainter extends CustomPainter {
         Paint()..color = recordBackground,
       );
     }
-    if (detailed) {
-      label('500 m', const Offset(15, 183), 9, Colors.white);
-      canvas.drawLine(
-        const Offset(15, 180),
-        const Offset(61, 180),
-        Paint()
-          ..color = Colors.white
-          ..strokeWidth = 2,
-      );
-    }
     canvas.restore();
   }
 
@@ -491,7 +403,13 @@ class _RecordMapPainter extends CustomPainter {
 }
 
 class RecordDetailPage extends StatefulWidget {
-  const RecordDetailPage({super.key, this.record, this.onMemoChanged});
+  const RecordDetailPage({
+    super.key,
+    this.record,
+    this.onMemoChanged,
+    this.onSaveMemo,
+  });
+  final Future<void> Function(String)? onSaveMemo;
   final RunningRecord? record;
 
   /// 저장소 연결 시 메모 변경 내용을 영속화하는 콜백.
@@ -501,8 +419,8 @@ class RecordDetailPage extends StatefulWidget {
 }
 
 class _RecordDetailPageState extends State<RecordDetailPage> {
-  RunningRecord get record => widget.record ?? demoRunningRecords[1];
-  late String memo = record.memo;
+  RunningRecord get record => widget.record!;
+  late String memo = widget.record?.memo ?? '';
   Future<void> _editMemo() async {
     final controller = TextEditingController(text: memo);
     final result = await showDialog<String>(
@@ -532,8 +450,17 @@ class _RecordDetailPageState extends State<RecordDetailPage> {
     await Future<void>.delayed(const Duration(milliseconds: 300));
     controller.dispose();
     if (result != null && mounted) {
-      setState(() => memo = result);
-      widget.onMemoChanged?.call(result);
+      try {
+        await widget.onSaveMemo?.call(result);
+        if (!mounted) return;
+        setState(() => memo = result);
+        widget.onMemoChanged?.call(result);
+      } catch (_) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('메모 저장에 실패했습니다. 다시 시도해 주세요.')),
+        );
+      }
     }
   }
 
@@ -545,17 +472,27 @@ class _RecordDetailPageState extends State<RecordDetailPage> {
           title: const Text('러닝 경로'),
           backgroundColor: recordBackground,
         ),
-        body: InteractiveViewer(
-          minScale: 1,
-          maxScale: 5,
-          child: SizedBox.expand(
-            child: RecordRouteMap(
-              record: record,
-              detailed: true,
-              borderRadius: 0,
-            ),
-          ),
-        ),
+        body: RecordRouteMap.basemapEnabled
+            ? SizedBox.expand(
+                child: RecordRouteMap(
+                  record: record,
+                  detailed: true,
+                  borderRadius: 0,
+                  basemap: true,
+                  interactive: true,
+                ),
+              )
+            : InteractiveViewer(
+                minScale: 1,
+                maxScale: 5,
+                child: SizedBox.expand(
+                  child: RecordRouteMap(
+                    record: record,
+                    detailed: true,
+                    borderRadius: 0,
+                  ),
+                ),
+              ),
       ),
     ),
   );
@@ -630,6 +567,12 @@ class _RecordDetailPageState extends State<RecordDetailPage> {
   );
   @override
   Widget build(BuildContext context) {
+    if (widget.record == null) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('기록 상세')),
+        body: const Center(child: Text('선택된 러닝 기록이 없습니다.')),
+      );
+    }
     final r = record;
     return Scaffold(
       backgroundColor: recordBackground,
@@ -641,7 +584,12 @@ class _RecordDetailPageState extends State<RecordDetailPage> {
               child: Stack(
                 fit: StackFit.expand,
                 children: [
-                  RecordRouteMap(record: r, detailed: true, borderRadius: 0),
+                  RecordRouteMap(
+                    record: r,
+                    detailed: true,
+                    borderRadius: 0,
+                    basemap: true,
+                  ),
                   const DecoratedBox(
                     decoration: BoxDecoration(
                       gradient: LinearGradient(
@@ -699,7 +647,7 @@ class _RecordDetailPageState extends State<RecordDetailPage> {
                       ),
                       icon: const Icon(Icons.open_in_full, size: 13),
                       label: const Text(
-                        '지도 크게 보기',
+                        '경로 크게 보기',
                         style: TextStyle(fontSize: 11),
                       ),
                     ),
@@ -721,12 +669,12 @@ class _RecordDetailPageState extends State<RecordDetailPage> {
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        '${clockText(r.startedAt)} - ${clockText(r.endedAt)} · 여의도 · 마포',
+                        '${clockText(r.startedAt)} - ${clockText(r.endedAt)}',
                         style: recordText(12, color: recordSecondary),
                       ),
                       const SizedBox(height: 18),
                       Text(
-                        '${r.place}에서 출발해 마포대교와 서강대교를 건너 한 바퀴, ${r.distanceKm.toStringAsFixed(2)} km를 달렸어요.',
+                        '${r.durationLabel} 동안 ${r.distanceKm.toStringAsFixed(2)} km를 달렸어요.',
                         style: recordText(
                           15,
                           weight: FontWeight.w600,
@@ -787,11 +735,7 @@ class _RecordDetailPageState extends State<RecordDetailPage> {
                           '${r.movingSeconds ~/ 60}분 ${(r.movingSeconds % 60).toString().padLeft(2, '0')}',
                           '초',
                         ),
-                        _metric(
-                          '평균 페이스',
-                          '${r.paceSeconds ~/ 60}분 ${r.paceSeconds % 60}초',
-                          '/km',
-                        ),
+                        _metric('평균 페이스', r.paceLabel, '/km'),
                       ),
                       const Divider(height: 1, color: recordLine),
                       _pair(
@@ -800,7 +744,13 @@ class _RecordDetailPageState extends State<RecordDetailPage> {
                           r.averageSpeed.toStringAsFixed(1),
                           'km/h',
                         ),
-                        _metric('최고 속도', r.maxSpeed.toStringAsFixed(1), 'km/h'),
+                        _metric(
+                          '최고 속도',
+                          r.speeds.isEmpty
+                              ? '—'
+                              : r.maxSpeed.toStringAsFixed(1),
+                          'km/h',
+                        ),
                       ),
                       const Divider(height: 1, color: recordLine),
                       _pair(
@@ -870,6 +820,11 @@ class _RecordDetailPageState extends State<RecordDetailPage> {
                         style: recordText(11, color: recordMuted),
                       ),
                       _section('소모 칼로리'),
+                      if (r.weightKg != null)
+                        Text(
+                          '체중 ${r.weightKg!.toStringAsFixed(0)}kg 기준 추정치',
+                          style: recordText(11, color: recordMuted),
+                        ),
                       Row(
                         children: [
                           Expanded(
@@ -904,7 +859,7 @@ class _RecordDetailPageState extends State<RecordDetailPage> {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                '햇반 약 ${(r.calories / 315).toStringAsFixed(1)}개',
+                                '햇반 약 ${r.hetbahnCount.toStringAsFixed(1)}개',
                                 style: recordText(15, weight: FontWeight.w700),
                               ),
                               Text(
@@ -1087,16 +1042,20 @@ class _SpeedPainter extends CustomPainter {
       tp.paint(canvas, p);
     }
 
-    for (final speed in [8, 10, 12]) {
-      final y = rect.bottom - (speed - 7) / 6 * rect.height;
+    final ceiling = math.max(
+      1.0,
+      math.max(record.maxSpeed, record.averageSpeed) * 1.2,
+    );
+    for (final speed in [0.0, ceiling / 2, ceiling]) {
+      final y = rect.bottom - speed / ceiling * rect.height;
       canvas.drawLine(
         Offset(rect.left, y),
         Offset(rect.right, y),
         Paint()..color = recordLine,
       );
-      label('$speed', Offset(0, y - 6));
+      label(speed.toStringAsFixed(1), Offset(0, y - 6));
     }
-    final averageY = rect.bottom - (record.averageSpeed - 7) / 6 * rect.height;
+    final averageY = rect.bottom - record.averageSpeed / ceiling * rect.height;
     for (var x = rect.left; x < rect.right; x += 5) {
       canvas.drawLine(
         Offset(x, averageY),
@@ -1139,8 +1098,13 @@ class _SpeedPainter extends CustomPainter {
     for (var i = 0; i < record.speeds.length; i++) {
       points.add(
         Offset(
-          rect.left + i / math.max(1, record.speeds.length - 1) * rect.width,
-          rect.bottom - (record.speeds[i] - 7) / 6 * rect.height,
+          rect.left +
+              (record.speedDistancesKm.length == record.speeds.length
+                      ? record.speedDistancesKm[i] /
+                            math.max(.01, record.distanceKm)
+                      : i / math.max(1, record.speeds.length - 1)) *
+                  rect.width,
+          rect.bottom - record.speeds[i] / ceiling * rect.height,
         ),
       );
     }
@@ -1163,7 +1127,11 @@ class _SpeedPainter extends CustomPainter {
         color: Colors.white,
       );
     }
-    for (var i = 0; i <= record.distanceKm.floor(); i++) {
+    for (
+      var i = 0;
+      i <= record.distanceKm.floor();
+      i += math.max(1, (record.distanceKm / 6).ceil())
+    ) {
       label(
         '$i',
         Offset(

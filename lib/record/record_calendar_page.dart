@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'list/record_list_page.dart';
 import 'list/detail/record_detail_page.dart';
 
-/// 단독 라우트 또는 RecordListPage의 달력 본문으로 사용할 수 있습니다.
+/// 단독 라우트 또는 RecordListPageV2의 달력 본문으로 사용할 수 있습니다.
 class RecordCalendarPage extends StatefulWidget {
   const RecordCalendarPage({
     super.key,
@@ -28,11 +28,11 @@ class RecordCalendarPage extends StatefulWidget {
 
 class _RecordCalendarPageState extends State<RecordCalendarPage> {
   DateTime? _selection;
-  List<RunningRecord> get records => widget.records ?? demoRunningRecords;
-  DateTime get month => widget.month ?? DateTime(2026, 9);
+  List<RunningRecord> get records => widget.records ?? const [];
+  DateTime get month => widget.month ?? DateTime.now();
   List<RunningRecord> _on(DateTime day) =>
       records.where((r) => DateUtils.isSameDay(r.startedAt, day)).toList()
-        ..sort((a, b) => a.startedAt.compareTo(b.startedAt));
+        ..sort((a, b) => b.startedAt.compareTo(a.startedAt));
   DateTime get selected {
     if (widget.selectedDay != null) return widget.selectedDay!;
     if (_selection != null && DateUtils.isSameMonth(_selection, month)) {
@@ -41,11 +41,6 @@ class _RecordCalendarPageState extends State<RecordCalendarPage> {
     final available =
         records.where((r) => DateUtils.isSameMonth(r.startedAt, month)).toList()
           ..sort((a, b) => b.startedAt.compareTo(a.startedAt));
-    if (available.any(
-      (r) => DateUtils.isSameDay(r.startedAt, DateTime(2026, 9, 26)),
-    )) {
-      return DateTime(2026, 9, 26);
-    }
     return available.isEmpty
         ? DateTime(month.year, month.month)
         : available.first.startedAt;
@@ -64,7 +59,7 @@ class _RecordCalendarPageState extends State<RecordCalendarPage> {
   @override
   Widget build(BuildContext context) {
     if (!widget.embedded) {
-      return RecordListPage(
+      return RecordListPageV2(
         records: widget.records,
         initialMonth: widget.month,
         initialCalendar: true,
@@ -109,12 +104,7 @@ class _RecordCalendarPageState extends State<RecordCalendarPage> {
             final day = DateTime(month.year, month.month, number);
             final entries = _on(day),
                 active = DateUtils.isSameDay(selected, day);
-            final today = DateUtils.isSameDay(
-              day,
-              identical(records, demoRunningRecords)
-                  ? DateTime(2026, 9, 28)
-                  : DateTime.now(),
-            );
+            final today = DateUtils.isSameDay(day, DateTime.now());
             return Semantics(
               label: '${month.month}월 $number일, 러닝 ${entries.length}건',
               selected: active,
@@ -179,11 +169,7 @@ class _RecordCalendarPageState extends State<RecordCalendarPage> {
         const SizedBox(height: 16),
         Row(
           children: [
-            SizedBox(
-              width: 18,
-              height: 12,
-              child: MiniRunningRoute(coordinates: demoRunningRecords[2].route),
-            ),
+            const Icon(Icons.route, size: 18, color: recordOrange),
             const SizedBox(width: 6),
             Text(
               '달린 날엔 그날의 경로가 그려져요',
@@ -233,7 +219,10 @@ class _RecordCalendarPageState extends State<RecordCalendarPage> {
               ],
             ),
             const SizedBox(height: 18),
-            SizedBox(height: 176, child: RecordRouteMap(record: r)),
+            SizedBox(
+              height: 176,
+              child: RecordRouteMap(record: r, basemap: true),
+            ),
             const SizedBox(height: 16),
             IntrinsicHeight(
               child: Row(

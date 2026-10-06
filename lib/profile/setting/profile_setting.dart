@@ -18,8 +18,9 @@ class ProfileSettings extends ChangeNotifier {
 }
 
 class ProfileSettingPage extends StatelessWidget {
-  const ProfileSettingPage({super.key, required this.settings});
+  const ProfileSettingPage({super.key, required this.settings, this.onLogout});
   final ProfileSettings settings;
+  final VoidCallback? onLogout;
 
   void _pending(BuildContext context, String label) {
     ScaffoldMessenger.of(context)
@@ -38,7 +39,8 @@ class ProfileSettingPage extends StatelessWidget {
       backgroundColor: AppColors.card,
       showDragHandle: true,
       builder: (context) => SafeArea(
-        child: Padding(
+        // 화면이 낮아도 선택지가 잘리지 않도록 스크롤을 허용합니다.
+        child: SingleChildScrollView(
           padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -176,7 +178,7 @@ class ProfileSettingPage extends StatelessWidget {
                 Row(
                   children: [
                     TextButton(
-                      onPressed: () => _pending(context, '로그아웃'),
+                      onPressed: onLogout ?? () => _pending(context, '로그아웃'),
                       style: TextButton.styleFrom(
                         padding: EdgeInsets.zero,
                         foregroundColor: Colors.white,

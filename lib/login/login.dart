@@ -1,27 +1,24 @@
 import 'package:flutter/material.dart';
 
+import '../account/account_store.dart';
 import '../design_system/app_colors.dart';
 import '../home/home_page.dart';
 import 'auth_ui/auth_ui.dart';
 import 'sign_up/basic_info.dart';
-export 'auth_ui/auth_ui.dart' show RegistrationData;
 
-/// 인증 콜백이 성공하면 홈 화면으로 이동합니다.
-class LoginPage extends StatefulWidget {
-  const LoginPage({
-    super.key,
-    this.onLogin,
-    this.onRegister,
-    this.onForgotPassword,
-  });
-  final Future<void> Function(String id, String password)? onLogin;
-  final Future<void> Function(RegistrationData data)? onRegister;
+/// 이 기기에 저장된 계정(AccountStore)으로 로그인·가입하는 화면. 성공하면 홈으로 이동합니다.
+class LoginPageV2 extends StatefulWidget {
+  const LoginPageV2({super.key, this.store, this.onForgotPassword});
+
+  /// 기본값은 AccountStore.instance.
+  final AccountStore? store;
   final VoidCallback? onForgotPassword;
   @override
-  State<LoginPage> createState() => _LoginPageState();
+  State<LoginPageV2> createState() => _LoginPageV2State();
 }
 
-class _LoginPageState extends State<LoginPage> {
+class _LoginPageV2State extends State<LoginPageV2> {
+  late final AccountStore _store = widget.store ?? AccountStore.instance;
   final form = GlobalKey<FormState>();
   final id = TextEditingController();
   final password = TextEditingController();
@@ -35,19 +32,19 @@ class _LoginPageState extends State<LoginPage> {
 
   void message(String text) =>
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
+  void _openHome() => Navigator.of(context).pushReplacement<void, void>(
+    MaterialPageRoute(builder: (_) => const HomePageV2()),
+  );
+
   Future<void> login() async {
     if (!form.currentState!.validate()) return;
-    if (widget.onLogin == null) {
-      message('로그인 서비스 연결 준비 중이에요');
-      return;
-    }
     setState(() => busy = true);
     try {
-      await widget.onLogin!(id.text.trim(), password.text);
+      await _store.login(id.text.trim(), password.text);
       if (!mounted) return;
-      Navigator.of(context).pushReplacement<void, void>(
-        MaterialPageRoute(builder: (_) => const HomePage()),
-      );
+      _openHome();
+    } on AuthException catch (e) {
+      if (mounted) message(e.message);
     } catch (_) {
       if (mounted) message('로그인하지 못했어요. 다시 시도해주세요');
     } finally {
@@ -56,18 +53,39 @@ class _LoginPageState extends State<LoginPage> {
   }
 
   Future<void> register() async {
+    // 계정은 하나만 저장하므로, 새로 가입하면 기존 계정과 러닝 기록이 사라집니다.
+    if (_store.hasAccount) {
+      final ok = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('새로 가입할까요?'),
+          content: const Text(
+            '이 기기에는 계정을 하나만 저장해요. 새로 가입하면 기존 계정과 러닝 기록이 모두 삭제돼요.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('취소'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('가입하기'),
+            ),
+          ],
+        ),
+      );
+      if (ok != true || !mounted) return;
+    }
     final data = await Navigator.push<RegistrationData>(
       context,
       MaterialPageRoute(builder: (_) => const BasicInfoPage()),
     );
     if (!mounted || data == null) return;
-    if (widget.onRegister == null) {
-      message('회원가입 서비스는 아직 준비 중이에요');
-      return;
-    }
     setState(() => busy = true);
     try {
-      await widget.onRegister!(data);
+      await _store.register(data);
+      if (!mounted) return;
+      _openHome();
     } catch (_) {
       if (mounted) message('가입하지 못했어요. 다시 시도해주세요');
     } finally {
@@ -87,7 +105,7 @@ class _LoginPageState extends State<LoginPage> {
             offset: const Offset(-24, 0),
             child: const CustomPaint(
               size: Size(285, 74),
-              painter: _BrandLines(),
+              painter: _BrandLinesV2(),
             ),
           ),
           const SizedBox(height: 36),
@@ -185,8 +203,8 @@ class _LoginPageState extends State<LoginPage> {
   );
 }
 
-class _BrandLines extends CustomPainter {
-  const _BrandLines();
+class _BrandLinesV2 extends CustomPainter {
+  const _BrandLinesV2();
   @override
   void paint(Canvas canvas, Size size) {
     final paint = Paint()
@@ -199,5 +217,31 @@ class _BrandLines extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant _BrandLines oldDelegate) => false;
+  bool shouldRepaint(covariant _BrandLinesV2 oldDelegate) => false;
+}
+
+/// 앱을 켤 때 저장된 로그인 상태를 읽어 홈 또는 로그인 화면을 엽니다.
+class AuthGate extends StatefulWidget {
+  const AuthGate({super.key, this.store});
+  final AccountStore? store;
+  @override
+  State<AuthGate> createState() => _AuthGateState();
+}
+
+class _AuthGateState extends State<AuthGate> {
+  late final AccountStore _store = widget.store ?? AccountStore.instance;
+  late final Future<void> _loaded = _store.load().catchError((Object _) {});
+
+  @override
+  Widget build(BuildContext context) => FutureBuilder<void>(
+    future: _loaded,
+    builder: (context, snapshot) {
+      if (snapshot.connectionState != ConnectionState.done) {
+        return const Scaffold(backgroundColor: AppColors.background);
+      }
+      return _store.isLoggedIn
+          ? const HomePageV2()
+          : LoginPageV2(store: _store);
+    },
+  );
 }

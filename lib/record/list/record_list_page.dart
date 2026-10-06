@@ -5,33 +5,71 @@ import '../../home/home_page.dart';
 import '../../profile/profile_main_page.dart';
 import '../record_calendar_page.dart';
 import 'detail/record_detail_page.dart';
+import '../data/running_record_store.dart';
 
-/// Record 탭 진입점. records를 생략하면 디자인의 2026년 9월 예시를 표시합니다.
-class RecordListPage extends StatefulWidget {
-  const RecordListPage({
+/// 로컬 러닝 기록을 표시하는 테스트용 Record 탭.
+class RecordListPageV2 extends StatefulWidget {
+  const RecordListPageV2({
     super.key,
     this.records,
+    this.store,
     this.initialMonth,
     this.initialCalendar = false,
     this.onHome,
     this.onProfile,
   });
   final List<RunningRecord>? records;
+  final RunningRecordStore? store;
   final DateTime? initialMonth;
   final bool initialCalendar;
   final VoidCallback? onHome, onProfile;
   @override
-  State<RecordListPage> createState() => _RecordListPageState();
+  State<RecordListPageV2> createState() => _RecordListPageV2State();
 }
 
-class _RecordListPageState extends State<RecordListPage> {
+class _RecordListPageV2State extends State<RecordListPageV2> {
   late bool calendar = widget.initialCalendar;
-  late DateTime month =
-      widget.initialMonth ??
-      (widget.records == null ? DateTime(2026, 9) : DateTime.now());
+  late DateTime month = widget.initialMonth ?? DateTime.now();
   DateTime? selectedDay;
-  final Map<String, String> _memos = {};
-  List<RunningRecord> get records => widget.records ?? demoRunningRecords;
+  late final _store = widget.store ?? RunningRecordStore.instance;
+  List<RunningRecord> _saved = const [];
+  bool _loading = true;
+  Object? _error;
+  List<RunningRecord> get records => widget.records ?? _saved;
+
+  @override
+  void initState() {
+    super.initState();
+    _store.addListener(_reload);
+    _reload();
+  }
+
+  Future<void> _reload() async {
+    try {
+      final saved = widget.records ?? await _store.load();
+      if (mounted) {
+        setState(() {
+          _saved = saved;
+          _loading = false;
+          _error = null;
+        });
+      }
+    } catch (error) {
+      if (mounted) {
+        setState(() {
+          _error = error;
+          _loading = false;
+        });
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _store.removeListener(_reload);
+    super.dispose();
+  }
+
   List<RunningRecord> get monthly =>
       records
           .where(
@@ -46,30 +84,11 @@ class _RecordListPageState extends State<RecordListPage> {
     selectedDay = null;
   });
   void _openRecord(RunningRecord r) {
-    final memo = _memos[r.id];
-    final selected = memo == null
-        ? r
-        : RunningRecord(
-            id: r.id,
-            startedAt: r.startedAt,
-            distanceKm: r.distanceKm,
-            movingSeconds: r.movingSeconds,
-            calories: r.calories,
-            route: r.route,
-            pauseSeconds: r.pauseSeconds,
-            place: r.place,
-            startPlace: r.startPlace,
-            endPlace: r.endPlace,
-            memo: memo,
-            speeds: r.speeds,
-            splitSeconds: r.splitSeconds,
-            pauseFractions: r.pauseFractions,
-          );
     Navigator.of(context).push<void>(
       MaterialPageRoute(
         builder: (_) => RecordDetailPage(
-          record: selected,
-          onMemoChanged: (value) => _memos[r.id] = value,
+          record: r,
+          onSaveMemo: (value) => _store.save(r.withMemo(value)),
         ),
       ),
     );
@@ -81,7 +100,7 @@ class _RecordListPageState extends State<RecordListPage> {
       return;
     }
     Navigator.of(context).pushReplacement<void, void>(
-      MaterialPageRoute(builder: (_) => const HomePage()),
+      MaterialPageRoute(builder: (_) => const HomePageV2()),
     );
   }
 
@@ -158,7 +177,25 @@ class _RecordListPageState extends State<RecordListPage> {
                     ),
                   ),
                   const Divider(height: 1, color: Color(0xFF343D43)),
-                  if (calendar)
+                  if (_loading)
+                    const Padding(
+                      padding: EdgeInsets.all(40),
+                      child: Center(child: CircularProgressIndicator()),
+                    )
+                  else if (_error != null)
+                    Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Column(
+                        children: [
+                          const Text('러닝 기록을 불러오지 못했습니다.'),
+                          TextButton(
+                            onPressed: _reload,
+                            child: const Text('다시 시도'),
+                          ),
+                        ],
+                      ),
+                    )
+                  else if (calendar)
                     RecordCalendarPage(
                       embedded: true,
                       records: records,
@@ -206,17 +243,14 @@ class _RecordListPageState extends State<RecordListPage> {
     final runs = monthly;
     final total = runs.fold(0.0, (sum, r) => sum + r.distanceKm);
     final seconds = runs.fold(0, (sum, r) => sum + r.movingSeconds);
-    final kcal = runs.fold(0, (sum, r) => sum + r.calories);
+    final kcal = runs.fold(0.0, (sum, r) => sum + r.energyKcal);
     final groups = <DateTime, List<RunningRecord>>{};
     for (final r in runs) {
       final d = DateTime(r.startedAt.year, r.startedAt.month, r.startedAt.day);
       final monday = d.subtract(Duration(days: d.weekday - 1));
       groups.putIfAbsent(monday, () => []).add(r);
     }
-    // 예시 화면의 '이번 주' 기준은 마지막 기록일. 실제 데이터는 오늘 기준.
-    final reference = widget.records == null
-        ? DateTime(2026, 9, 28)
-        : DateTime.now();
+    final reference = DateTime.now();
     final currentMonday = DateTime(
       reference.year,
       reference.month,
@@ -233,7 +267,9 @@ class _RecordListPageState extends State<RecordListPage> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    '이번 달 달린 거리',
+                    DateUtils.isSameMonth(month, DateTime.now())
+                        ? '이번 달 달린 거리'
+                        : '${month.month}월 달린 거리',
                     style: recordText(
                       12,
                       color: recordSecondary,
@@ -270,12 +306,14 @@ class _RecordListPageState extends State<RecordListPage> {
                 ),
                 const SizedBox(height: 5),
                 Text(
-                  '${seconds ~/ 3600}시간 ${seconds ~/ 60 % 60}분',
+                  seconds < 3600
+                      ? '${seconds ~/ 60}분'
+                      : '${seconds ~/ 3600}시간 ${seconds ~/ 60 % 60}분',
                   style: recordText(12, color: recordSecondary),
                 ),
                 const SizedBox(height: 5),
                 Text(
-                  '햇반 ${(kcal / 315).toStringAsFixed(1)}개',
+                  '햇반 ${kcal == 0 ? '0' : (kcal / 315).toStringAsFixed(1)}개',
                   style: recordText(12, color: recordSecondary),
                 ),
               ],
@@ -288,7 +326,7 @@ class _RecordListPageState extends State<RecordListPage> {
         Padding(
           padding: const EdgeInsets.symmetric(vertical: 64),
           child: Text(
-            '이번 달에는 러닝 기록이 없어요',
+            records.isEmpty ? '아직 저장된 러닝 기록이 없습니다.' : '이번 달에는 러닝 기록이 없습니다.',
             textAlign: TextAlign.center,
             style: recordText(14, color: recordMuted),
           ),
@@ -310,7 +348,18 @@ class _RecordListPageState extends State<RecordListPage> {
                 ),
               ),
               Text(
-                group.value
+                records
+                    .where(
+                      (r) =>
+                          !r.startedAt.isBefore(group.key) &&
+                          r.startedAt.isBefore(
+                            DateTime(
+                              group.key.year,
+                              group.key.month,
+                              group.key.day + 7,
+                            ),
+                          ),
+                    )
                     .fold(0.0, (s, r) => s + r.distanceKm)
                     .toStringAsFixed(2),
                 style: recordNumber(16, color: recordSecondary),
@@ -353,7 +402,7 @@ class _RecordListPageState extends State<RecordListPage> {
           SizedBox(
             width: 88,
             height: 88,
-            child: RecordRouteMap(record: r, borderRadius: 17),
+            child: RecordRouteMap(record: r, borderRadius: 17, basemap: true),
           ),
           const SizedBox(width: 16),
           Expanded(

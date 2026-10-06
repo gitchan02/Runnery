@@ -8,7 +8,10 @@ import 'package:runnery_new/profile/setting/profile_setting.dart';
 void main() {
   testWidgets('홈에서 프로필과 설정으로 이동하고 설정 상태를 유지한다', (tester) async {
     await tester.pumpWidget(
-      MaterialApp(theme: AppTheme.dark, home: const HomePage()),
+      MaterialApp(
+        theme: AppTheme.dark,
+        home: const HomePageV2(records: []),
+      ),
     );
     await tester.tap(find.text('내 정보'));
     await tester.pumpAndSettle();

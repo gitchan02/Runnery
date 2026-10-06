@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../design_system/app_colors.dart';
 import '../auth_ui/auth_ui.dart';
@@ -35,6 +36,72 @@ class _RunningInfoPageState extends State<RunningInfoPage> {
     age.dispose();
     ruler.dispose();
     super.dispose();
+  }
+
+  static const _minWeight = 20.0, _maxWeight = 300.0;
+
+  /// 체중 숫자를 누르면 키패드로 직접 입력합니다. 눈금자도 그 값으로 옮깁니다.
+  Future<void> _typeWeight() async {
+    final controller = TextEditingController(text: weight.toStringAsFixed(1));
+    controller.selection = TextSelection(
+      baseOffset: 0,
+      extentOffset: controller.text.length,
+    );
+    final formKey = GlobalKey<FormState>();
+    double? parse(String? v) =>
+        double.tryParse((v ?? '').trim().replaceAll(',', '.'));
+    final result = await showDialog<double>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('체중 입력'),
+        content: Form(
+          key: formKey,
+          child: TextFormField(
+            controller: controller,
+            autofocus: true,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            textInputAction: TextInputAction.done,
+            inputFormatters: [
+              FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]')),
+            ],
+            decoration: const InputDecoration(suffixText: 'kg'),
+            validator: (v) {
+              final value = parse(v);
+              return value != null && value >= _minWeight && value <= _maxWeight
+                  ? null
+                  : '${_minWeight.round()}~${_maxWeight.round()} kg 사이로 입력해주세요';
+            },
+            onFieldSubmitted: (_) {
+              if (formKey.currentState!.validate()) {
+                Navigator.pop(context, parse(controller.text));
+              }
+            },
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('취소'),
+          ),
+          TextButton(
+            onPressed: () {
+              if (formKey.currentState!.validate()) {
+                Navigator.pop(context, parse(controller.text));
+              }
+            },
+            child: const Text('확인'),
+          ),
+        ],
+      ),
+    );
+    // 다이얼로그가 닫히는 애니메이션이 끝난 뒤에 컨트롤러를 정리합니다.
+    await Future<void>.delayed(const Duration(milliseconds: 300));
+    controller.dispose();
+    if (result == null || !mounted) return;
+    final value = (result * 10).round() / 10;
+    // 눈금자 1kg = 3.4px. 스크롤 위치가 바뀌면 리스너가 weight를 갱신합니다.
+    ruler.jumpTo((value * 3.4).clamp(0, ruler.position.maxScrollExtent));
+    setState(() => weight = value);
   }
 
   void complete() {
@@ -134,20 +201,45 @@ class _RunningInfoPageState extends State<RunningInfoPage> {
           ),
           const SizedBox(height: 8),
           Center(
-            child: Text.rich(
-              TextSpan(
-                children: [
-                  TextSpan(
-                    text: weight.toStringAsFixed(1),
-                    style: const TextStyle(
-                      fontFamily: 'Archivo',
-                      fontVariations: [FontVariation('wdth', 75)],
-                      fontSize: 52,
-                      fontWeight: FontWeight.w700,
+            child: InkWell(
+              onTap: _typeWeight,
+              borderRadius: BorderRadius.circular(12),
+              child: Semantics(
+                button: true,
+                hint: '눌러서 체중을 직접 입력',
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 2,
+                  ),
+                  child: Text.rich(
+                    TextSpan(
+                      children: [
+                        TextSpan(
+                          text: weight.toStringAsFixed(1),
+                          style: const TextStyle(
+                            fontFamily: 'Archivo',
+                            fontVariations: [FontVariation('wdth', 75)],
+                            fontSize: 52,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const TextSpan(text: ' KG', style: authLabelStyle),
+                        const WidgetSpan(
+                          alignment: PlaceholderAlignment.middle,
+                          child: Padding(
+                            padding: EdgeInsets.only(left: 8),
+                            child: Icon(
+                              Icons.edit_outlined,
+                              size: 16,
+                              color: AppColors.textTertiary,
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                  const TextSpan(text: ' KG', style: authLabelStyle),
-                ],
+                ),
               ),
             ),
           ),
@@ -157,6 +249,8 @@ class _RunningInfoPageState extends State<RunningInfoPage> {
               builder: (context, box) => Semantics(
                 label: '체중',
                 value: '${weight.toStringAsFixed(1)} 킬로그램',
+                increasedValue: '${(weight + .1).toStringAsFixed(1)} 킬로그램',
+                decreasedValue: '${(weight - .1).toStringAsFixed(1)} 킬로그램',
                 onIncrease: () => ruler.jumpTo(
                   (ruler.offset + 3.4).clamp(0, ruler.position.maxScrollExtent),
                 ),

@@ -1,33 +1,132 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:geolocator/geolocator.dart';
+import 'package:maplibre_gl/maplibre_gl.dart';
 
+import '../account/account_store.dart';
 import '../design_system/app_colors.dart';
 import '../design_system/app_motion.dart';
 import '../design_system/app_text_styles.dart';
 import '../profile/profile_mail_page.dart';
+import '../record/data/running_record_store.dart';
+import '../record/list/detail/record_detail_page.dart';
 import '../record/list/record_list_page.dart';
 import 'running/running_home_page.dart';
 
-/// 로그인 후 홈. 기본 수치와 경로는 디자인 시안의 예시 데이터입니다.
-class HomePage extends StatelessWidget {
-  const HomePage({super.key, this.onStartRun, this.onRecords, this.onProfile});
+/// 저장된 러닝 기록(RunningRecordStore)을 읽는 홈. 기록 탭과 같은 데이터를 사용합니다.
+class HomePageV2 extends StatefulWidget {
+  const HomePageV2({
+    super.key,
+    this.onStartRun,
+    this.onRecords,
+    this.onProfile,
+    this.store,
+    this.records,
+    this.now,
+    this.liveMap,
+  });
+
+  /// 카드에 현재 GPS 위치 지도를 쓸지. 기본값은 records가 없을 때(실제 앱)만 true.
+  final bool? liveMap;
 
   final VoidCallback? onStartRun;
   final VoidCallback? onRecords;
   final VoidCallback? onProfile;
 
-  void _open(BuildContext context, VoidCallback? action, String label) {
+  /// 기본값은 기록 탭과 같은 RunningRecordStore.instance.
+  final RunningRecordStore? store;
+
+  /// 테스트용 고정 기록. 지정하면 저장소를 읽지 않습니다.
+  final List<RunningRecord>? records;
+
+  /// 테스트용 현재 시각.
+  final DateTime Function()? now;
+
+  @override
+  State<HomePageV2> createState() => _HomePageV2State();
+}
+
+class _HomePageV2State extends State<HomePageV2> with WidgetsBindingObserver {
+  late final RunningRecordStore _store =
+      widget.store ?? RunningRecordStore.instance;
+  List<RunningRecord> _records = const [];
+  Object? _error;
+
+  DateTime get _now => (widget.now ?? DateTime.now)();
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _store.addListener(_reload);
+    _reload();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _store.removeListener(_reload);
+    super.dispose();
+  }
+
+  /// 날짜가 바뀐 뒤 앱으로 돌아와도 오늘 기준으로 다시 계산합니다.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) _reload();
+  }
+
+  Future<void> _reload() async {
+    try {
+      final loaded = widget.records ?? await _store.load();
+      if (mounted) {
+        setState(() {
+          _records = loaded;
+          _error = null;
+        });
+      }
+    } catch (error) {
+      if (mounted) setState(() => _error = error);
+    }
+  }
+
+  List<RunningRecord> get _today => [
+    for (final r in _records)
+      if (_sameDay(r.startedAt.toLocal(), _now)) r,
+  ];
+
+  /// 가장 최근에 시작한 러닝 중 GPS 좌표가 있는 기록.
+  RunningRecord? get _latestWithRoute {
+    RunningRecord? latest;
+    for (final r in _records) {
+      if (r.route.isEmpty) continue;
+      if (latest == null || r.startedAt.isAfter(latest.startedAt)) latest = r;
+    }
+    return latest;
+  }
+
+  static bool _sameDay(DateTime a, DateTime b) =>
+      a.year == b.year && a.month == b.month && a.day == b.day;
+
+  void _open(String label) {
+    final action = switch (label) {
+      '러닝' => widget.onStartRun,
+      '기록' => widget.onRecords,
+      '내 정보' => widget.onProfile,
+      _ => null,
+    };
     if (action != null) {
       action();
     } else if (label == '내 정보') {
       Navigator.of(context).pushReplacement<void, void>(
         MaterialPageRoute(
-          builder: (_) => ProfileMailPage(onRecords: onRecords),
+          builder: (_) => ProfileMailPage(onRecords: widget.onRecords),
         ),
       );
     } else if (label == '기록') {
       Navigator.of(context).pushReplacement<void, void>(
-        MaterialPageRoute(builder: (_) => const RecordListPage()),
+        MaterialPageRoute(builder: (_) => const RecordListPageV2()),
       );
     } else if (label == '러닝') {
       // 홈→러닝 시작: 아래에서 올라오기 300ms.
@@ -48,108 +147,124 @@ class HomePage extends StatelessWidget {
           ),
         ),
       );
-    } else {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('$label 화면은 준비 중이에요')));
     }
   }
 
+  static String _dateLabel(DateTime d) =>
+      '${d.month}월 ${d.day}일 ${const ['월', '화', '수', '목', '금', '토', '일'][d.weekday - 1]}요일';
+
   @override
-  Widget build(BuildContext context) => AnnotatedRegion<SystemUiOverlayStyle>(
-    value: SystemUiOverlayStyle.light.copyWith(
-      statusBarColor: Colors.transparent,
-      systemNavigationBarColor: AppColors.background,
-    ),
-    child: Scaffold(
-      backgroundColor: AppColors.background,
-      bottomNavigationBar: _navigation(context),
-      body: SafeArea(
-        bottom: false,
-        child: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 480),
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(24, 28, 24, 20),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Row(
-                    children: [
-                      const CustomPaint(
-                        size: Size(24, 24),
-                        painter: _LogoPainter(),
-                      ),
-                      const SizedBox(width: 9),
-                      const Text(
-                        '러너리',
-                        style: TextStyle(
-                          fontSize: 24,
-                          fontWeight: FontWeight.w800,
-                          letterSpacing: -1,
+  Widget build(BuildContext context) {
+    final today = _today;
+    final distanceKm = today.fold<double>(0, (sum, r) => sum + r.distanceKm);
+    final movingSeconds = today.fold<int>(0, (sum, r) => sum + r.movingSeconds);
+    final kcal = today.fold<double>(0, (sum, r) => sum + r.energyKcal).round();
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: SystemUiOverlayStyle.light.copyWith(
+        statusBarColor: Colors.transparent,
+        systemNavigationBarColor: AppColors.background,
+      ),
+      child: Scaffold(
+        backgroundColor: AppColors.background,
+        bottomNavigationBar: _navigation(),
+        body: SafeArea(
+          bottom: false,
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 480),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(24, 28, 24, 20),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Row(
+                      children: [
+                        const CustomPaint(
+                          size: Size(24, 24),
+                          painter: _LogoPainter(),
                         ),
-                      ),
-                      const Spacer(),
-                      SizedBox(
-                        width: 36,
-                        height: 36,
-                        child: OutlinedButton(
-                          onPressed: () => _open(context, onProfile, '내 정보'),
-                          style: OutlinedButton.styleFrom(
-                            padding: EdgeInsets.zero,
-                            foregroundColor: Colors.white,
-                            side: const BorderSide(
-                              color: AppColors.borderControl,
+                        const SizedBox(width: 9),
+                        const Text(
+                          '러너리',
+                          style: TextStyle(
+                            fontSize: 24,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: -1,
+                          ),
+                        ),
+                        const Spacer(),
+                        SizedBox(
+                          width: 36,
+                          height: 36,
+                          child: OutlinedButton(
+                            onPressed: () => _open('내 정보'),
+                            style: OutlinedButton.styleFrom(
+                              padding: EdgeInsets.zero,
+                              foregroundColor: Colors.white,
+                              side: const BorderSide(
+                                color: AppColors.borderControl,
+                              ),
+                              shape: const CircleBorder(),
                             ),
-                            shape: const CircleBorder(),
+                            child: Text(
+                              AccountStore.instance.current?.initial ?? '러',
+                              style: TextStyle(fontWeight: FontWeight.w700),
+                            ),
                           ),
-                          child: const Text(
-                            '민',
-                            style: TextStyle(fontWeight: FontWeight.w700),
-                          ),
                         ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 26),
-                  const Row(
-                    children: [
-                      Text(
-                        '오늘의 러닝',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                      SizedBox(width: 12),
-                      Expanded(child: Divider(color: AppColors.borderDefault)),
-                      SizedBox(width: 12),
-                      Text(
-                        '9월 28일 월요일',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: AppColors.textTertiary,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 22),
-                  const _RunSummary(),
-                  const SizedBox(height: 14),
-                  // 지도는 남은 높이를 사용해 버튼까지 한 화면에 표시합니다.
-                  Expanded(
-                    child: _RouteCard(
-                      onTap: () => _open(context, onRecords, '기록'),
+                      ],
                     ),
-                  ),
-                  const SizedBox(height: 16),
-                  Semantics(
-                    hint: '예시 GPS 상태',
-                    child: Material(
+                    const SizedBox(height: 26),
+                    // 글자를 크게 키운 좁은 화면에서도 제목과 날짜가 한 줄에 들어오도록 배율을 제한합니다.
+                    MediaQuery.withClampedTextScaling(
+                      maxScaleFactor: 1.1,
+                      child: Row(
+                        children: [
+                          const Text(
+                            '오늘의 러닝',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          const Expanded(
+                            child: Divider(color: AppColors.borderDefault),
+                          ),
+                          const SizedBox(width: 12),
+                          Text(
+                            _dateLabel(_now),
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: AppColors.textTertiary,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 22),
+                    _RunSummary(
+                      distanceKm: distanceKm,
+                      movingSeconds: movingSeconds,
+                      kcal: kcal,
+                    ),
+                    const SizedBox(height: 14),
+                    // 지도는 남은 높이를 사용해 버튼까지 한 화면에 표시합니다.
+                    Expanded(
+                      child: _RouteCard(
+                        record: _latestWithRoute,
+                        error: _error != null,
+                        liveMap: widget.liveMap ?? widget.records == null,
+                        onTap: _error != null ? _reload : () => _open('기록'),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    Material(
                       color: AppColors.primary,
                       borderRadius: BorderRadius.circular(30),
                       clipBehavior: Clip.antiAlias,
                       child: InkWell(
-                        onTap: () => _open(context, onStartRun, '러닝'),
+                        onTap: () => _open('러닝'),
                         child: Padding(
                           padding: const EdgeInsets.fromLTRB(24, 16, 16, 16),
                           child: Row(
@@ -177,7 +292,7 @@ class HomePage extends StatelessWidget {
                                         const SizedBox(width: 5),
                                         Flexible(
                                           child: Text(
-                                            'GPS 신호 양호 · 바로 시작할 수 있어요',
+                                            '바로 시작할 수 있어요',
                                             style: TextStyle(
                                               color: Colors.black.withValues(
                                                 alpha: .85,
@@ -206,17 +321,17 @@ class HomePage extends StatelessWidget {
                         ),
                       ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
           ),
         ),
       ),
-    ),
-  );
+    );
+  }
 
-  Widget _navigation(BuildContext context) => Container(
+  Widget _navigation() => Container(
     decoration: const BoxDecoration(
       border: Border(top: BorderSide(color: AppColors.divider)),
     ),
@@ -235,12 +350,12 @@ class HomePage extends StatelessWidget {
             _NavItem(
               label: '기록',
               icon: Icons.format_align_left,
-              onTap: () => _open(context, onRecords, '기록'),
+              onTap: () => _open('기록'),
             ),
             _NavItem(
               label: '내 정보',
               icon: Icons.person_outline,
-              onTap: () => _open(context, onProfile, '내 정보'),
+              onTap: () => _open('내 정보'),
             ),
           ],
         ),
@@ -250,89 +365,100 @@ class HomePage extends StatelessWidget {
 }
 
 class _RunSummary extends StatelessWidget {
-  const _RunSummary();
+  const _RunSummary({
+    required this.distanceKm,
+    required this.movingSeconds,
+    required this.kcal,
+  });
+  final double distanceKm;
+  final int movingSeconds;
+  final int kcal;
 
   @override
-  Widget build(BuildContext context) => Row(
-    crossAxisAlignment: CrossAxisAlignment.end,
-    children: [
-      Expanded(
-        flex: 3,
-        child: Padding(
-          padding: const EdgeInsets.only(right: 18),
-          child: FittedBox(
-            alignment: Alignment.bottomLeft,
-            fit: BoxFit.scaleDown,
-            child: Text.rich(
-              TextSpan(
-                children: [
-                  TextSpan(
-                    text: '5.24',
-                    style: AppTextStyles.statHero.copyWith(
-                      fontSize: 88,
-                      height: 1,
-                      fontWeight: FontWeight.w800,
-                      letterSpacing: -4,
+  Widget build(BuildContext context) {
+    final hours = movingSeconds ~/ 3600;
+    final minutes = movingSeconds ~/ 60 % 60;
+    final seconds = movingSeconds % 60;
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: [
+        Expanded(
+          flex: 3,
+          child: Padding(
+            padding: const EdgeInsets.only(right: 18),
+            child: FittedBox(
+              alignment: Alignment.bottomLeft,
+              fit: BoxFit.scaleDown,
+              child: Text.rich(
+                TextSpan(
+                  children: [
+                    TextSpan(
+                      text: distanceKm.toStringAsFixed(2),
+                      style: AppTextStyles.statHero.copyWith(
+                        fontSize: 88,
+                        height: 1,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: -4,
+                      ),
                     ),
-                  ),
-                  const TextSpan(
-                    text: ' km',
-                    style: TextStyle(
-                      fontSize: 20,
-                      color: AppColors.textSecondary,
-                      fontWeight: FontWeight.w600,
+                    const TextSpan(
+                      text: ' km',
+                      style: TextStyle(
+                        fontSize: 20,
+                        color: AppColors.textSecondary,
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
           ),
         ),
-      ),
-      Expanded(
-        flex: 2,
-        child: Container(
-          padding: const EdgeInsets.only(left: 16),
-          decoration: const BoxDecoration(
-            border: Border(left: BorderSide(color: AppColors.divider)),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                '운동 시간',
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                  color: AppColors.textSecondary,
+        Expanded(
+          flex: 2,
+          child: Container(
+            padding: const EdgeInsets.only(left: 16),
+            decoration: const BoxDecoration(
+              border: Border(left: BorderSide(color: AppColors.divider)),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  '운동 시간',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.textSecondary,
+                  ),
                 ),
-              ),
-              FittedBox(
-                child: _value('32', '분 ', second: '15', lastUnit: '초'),
-              ),
-              const SizedBox(height: 8),
-              const Text(
-                '소모 칼로리',
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                  color: AppColors.textSecondary,
+                FittedBox(
+                  child: _value([
+                    if (hours > 0) ...[('$hours', '시간 ')],
+                    ('$minutes', '분 '),
+                    (seconds.toString().padLeft(2, '0'), '초'),
+                  ]),
                 ),
-              ),
-              FittedBox(child: _value('315', 'kcal')),
-            ],
+                const SizedBox(height: 8),
+                const Text(
+                  '소모 칼로리',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.textSecondary,
+                  ),
+                ),
+                FittedBox(child: _value([('$kcal', ' kcal')])),
+              ],
+            ),
           ),
         ),
-      ),
-    ],
-  );
+      ],
+    );
+  }
 
-  Widget _value(
-    String number,
-    String unit, {
-    String? second,
-    String? lastUnit,
-  }) => Text.rich(
+  Widget _value(List<(String, String)> parts) => Text.rich(
     TextSpan(
       style: AppTextStyles.statValue.copyWith(
         fontSize: 24,
@@ -340,105 +466,349 @@ class _RunSummary extends StatelessWidget {
         fontWeight: FontWeight.w800,
       ),
       children: [
-        TextSpan(text: number),
-        TextSpan(
-          text: unit,
-          style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
-        ),
-        if (second != null) TextSpan(text: second),
-        if (lastUnit != null)
+        for (final (number, unit) in parts) ...[
+          TextSpan(text: number),
           TextSpan(
-            text: lastUnit,
+            text: unit,
             style: const TextStyle(
               fontSize: 12,
               color: AppColors.textSecondary,
             ),
           ),
+        ],
       ],
     ),
   );
 }
 
 class _RouteCard extends StatelessWidget {
-  const _RouteCard({required this.onTap});
+  const _RouteCard({
+    required this.record,
+    required this.error,
+    required this.onTap,
+    required this.liveMap,
+  });
+
+  /// true면 배경에 현재 GPS 위치 지도를 보여줍니다.
+  final bool liveMap;
+
+  /// 가장 최근 러닝. null이면 표시할 GPS 경로가 없습니다.
+  final RunningRecord? record;
+  final bool error;
   final VoidCallback onTap;
 
+  static const _unknownPlace = '위치 정보 없음';
+
+  String _caption(RunningRecord r) {
+    if (r.startPlace != _unknownPlace && r.endPlace != _unknownPlace) {
+      return '${r.startPlace} → ${r.endPlace}';
+    }
+    return '${r.dateLabel} · ${r.distanceKm.toStringAsFixed(2)} km';
+  }
+
   @override
-  Widget build(BuildContext context) => Semantics(
-    label: '최근 러닝 경로 예시, 여의나루역에서 여의도공원',
-    button: true,
-    child: ClipRRect(
-      borderRadius: BorderRadius.circular(24),
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          const CustomPaint(painter: _RouteMapPainter()),
-          const DecoratedBox(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                stops: [.65, 1],
-                colors: [Colors.transparent, Color(0xEE0B0B0B)],
+  Widget build(BuildContext context) {
+    final r = record;
+    return Semantics(
+      label: r == null ? '최근 러닝 경로 없음' : '최근 러닝 경로, ${_caption(r)}',
+      button: true,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(24),
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            // 기록 탭과 같은 RecordRouteMap(342×200 비율)을 가운데에 둡니다.
+            if (liveMap)
+              const _LiveLocationMap()
+            else
+              ColoredBox(
+                color: r == null ? AppColors.mapLand : const Color(0xFF1E2633),
+                child: r == null
+                    ? Center(
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 24),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(
+                                Icons.route,
+                                size: 28,
+                                color: AppColors.textTertiary,
+                              ),
+                              const SizedBox(height: 10),
+                              Text(
+                                error ? '기록을 불러오지 못했어요' : '아직 러닝 기록이 없어요',
+                                style: const TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w700,
+                                  color: AppColors.textSecondary,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                error ? '눌러서 다시 시도해요' : '첫 러닝을 시작해 보세요',
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  color: AppColors.textTertiary,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      )
+                    : Center(
+                        child: AspectRatio(
+                          aspectRatio: 342 / 200,
+                          child: RecordRouteMap(record: r, borderRadius: 0),
+                        ),
+                      ),
+              ),
+            // 지도 드래그를 막지 않도록 장식 레이어는 터치를 통과시킵니다.
+            const IgnorePointer(
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    stops: [.65, 1],
+                    colors: [Colors.transparent, Color(0xEE0B0B0B)],
+                  ),
+                ),
+                child: SizedBox.expand(),
               ),
             ),
-          ),
-          Positioned(
-            top: 14,
-            left: 14,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-              decoration: BoxDecoration(
-                color: AppColors.mapButtonBase.withValues(alpha: .94),
-                borderRadius: BorderRadius.circular(20),
+            if (!liveMap)
+              Positioned(
+                top: 14,
+                left: 14,
+                child: IgnorePointer(
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 7,
+                    ),
+                    decoration: BoxDecoration(
+                      color: AppColors.mapButtonBase.withValues(alpha: .94),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          liveMap ? Icons.my_location : Icons.route,
+                          size: 14,
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          liveMap ? '현재 위치' : '최근 러닝 경로',
+                          style: const TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
               ),
-              child: const Row(
+            Positioned(
+              bottom: 8,
+              left: 16,
+              right: 8,
+              child: Row(
                 children: [
-                  Icon(Icons.route, size: 14),
-                  SizedBox(width: 6),
-                  Text(
-                    '최근 러닝 경로',
-                    style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700),
+                  Expanded(
+                    child: IgnorePointer(
+                      child: Text(
+                        r == null ? '' : _caption(r),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  ),
+                  TextButton(
+                    onPressed: onTap,
+                    style: TextButton.styleFrom(
+                      foregroundColor: AppColors.textSecondary,
+                      padding: const EdgeInsets.fromLTRB(10, 8, 4, 8),
+                      minimumSize: const Size(48, 40),
+                    ),
+                    child: const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text('기록 보기', style: TextStyle(fontSize: 12)),
+                        Icon(Icons.chevron_right, size: 16),
+                      ],
+                    ),
                   ),
                 ],
               ),
             ),
-          ),
-          const Positioned(
-            bottom: 16,
-            left: 16,
-            right: 16,
-            child: Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    '여의나루역 → 여의도공원',
-                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
-                  ),
+            // 실시간 지도는 직접 움직일 수 있으므로 카드 전체 탭은 쓰지 않습니다.
+            if (!liveMap)
+              Material(
+                color: Colors.transparent,
+                child: InkWell(onTap: onTap),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// 현재 GPS 위치를 가운데에 둔 지도.
+class _LiveLocationMap extends StatefulWidget {
+  const _LiveLocationMap();
+
+  @override
+  State<_LiveLocationMap> createState() => _LiveLocationMapState();
+}
+
+class _LiveLocationMapState extends State<_LiveLocationMap> {
+  final _map = RunneryMapController();
+  StreamSubscription<Position>? _sub;
+  Position? _position;
+  bool _denied = false;
+  bool _follow = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _start();
+  }
+
+  @override
+  void dispose() {
+    _sub?.cancel();
+    _map.dispose();
+    super.dispose();
+  }
+
+  Future<void> _start() async {
+    try {
+      if (!await Geolocator.isLocationServiceEnabled()) {
+        if (mounted) setState(() => _denied = true);
+        return;
+      }
+      var permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+      if (permission == LocationPermission.denied ||
+          permission == LocationPermission.deniedForever ||
+          permission == LocationPermission.unableToDetermine) {
+        if (mounted) setState(() => _denied = true);
+        return;
+      }
+      final last = await Geolocator.getLastKnownPosition();
+      if (!mounted) return;
+      if (last != null) setState(() => _position = last);
+      _sub = Geolocator.getPositionStream(
+        locationSettings: runningLocationSettings(),
+      ).listen(_onPosition, onError: (_) {});
+    } catch (_) {
+      if (mounted) setState(() => _denied = true);
+    }
+  }
+
+  void _onPosition(Position p) {
+    final first = _position == null;
+    setState(() => _position = p);
+    if (!first && _follow) _map.moveTo(LatLng(p.latitude, p.longitude));
+  }
+
+  bool _locating = false;
+
+  /// 현재 GPS 위치를 다시 읽어 마커와 카메라를 그 위치로 옮깁니다.
+  Future<void> _recenter() async {
+    if (_locating) return;
+    _locating = true;
+    try {
+      final p = await Geolocator.getCurrentPosition(
+        locationSettings: runningLocationSettings(),
+      );
+      if (!mounted) return;
+      _follow = true;
+      setState(() => _position = p);
+      await _map.moveTo(LatLng(p.latitude, p.longitude), zoom: MapZoom.basic);
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('현재 위치를 가져오지 못했어요')));
+      }
+    } finally {
+      _locating = false;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final p = _position;
+    if (p == null) {
+      return ColoredBox(
+        color: AppColors.mapLand,
+        child: Center(
+          child: _denied
+              ? const Text(
+                  '위치 권한을 허용하면 내 주변 지도가 보여요',
+                  style: TextStyle(fontSize: 12, color: AppColors.textTertiary),
+                )
+              : const Icon(
+                  Icons.location_searching,
+                  size: 24,
+                  color: AppColors.textTertiary,
                 ),
-                Text(
-                  '기록 보기',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: AppColors.textSecondary,
-                  ),
+        ),
+      );
+    }
+    final point = LatLng(p.latitude, p.longitude);
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        RunneryMap(
+          controller: _map,
+          initialCenter: point,
+          initialZoom: MapZoom.basic,
+          // 손으로 움직이면 내 위치 따라가기를 멈춥니다.
+          onUserGesture: () => _follow = false,
+          userLocation: MapUserLocation(point, p.accuracy.clamp(5, 60)),
+        ),
+        Positioned(
+          top: 14,
+          left: 14,
+          child: Material(
+            color: AppColors.mapButtonBase.withValues(alpha: .94),
+            borderRadius: BorderRadius.circular(20),
+            clipBehavior: Clip.antiAlias,
+            child: InkWell(
+              onTap: _recenter,
+              child: const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.my_location, size: 14),
+                    SizedBox(width: 6),
+                    Text(
+                      '현재 위치',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
                 ),
-                Icon(
-                  Icons.chevron_right,
-                  size: 16,
-                  color: AppColors.textSecondary,
-                ),
-              ],
+              ),
             ),
           ),
-          Material(
-            color: Colors.transparent,
-            child: InkWell(onTap: onTap),
-          ),
-        ],
-      ),
-    ),
-  );
+        ),
+      ],
+    );
+  }
 }
 
 class _NavItem extends StatelessWidget {
@@ -512,197 +882,4 @@ class _LogoPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _LogoPainter oldDelegate) => false;
-}
-
-/// 네트워크 지도 대신 시안의 한강과 러닝 코스를 그리는 정적 미리보기.
-class _RouteMapPainter extends CustomPainter {
-  const _RouteMapPainter();
-  @override
-  void paint(Canvas canvas, Size size) {
-    canvas.save();
-    canvas.scale(size.width / 342, size.height / 348);
-    canvas.drawRect(
-      const Rect.fromLTWH(0, 0, 342, 348),
-      Paint()..color = AppColors.mapLand,
-    );
-    canvas.save();
-    canvas.rotate(-.09);
-    for (var y = 130.0; y < 390; y += 23) {
-      for (var x = -30.0; x < 380; x += 18) {
-        canvas.drawRect(
-          Rect.fromLTWH(x + 3, y + 3, 10, 13),
-          Paint()..color = AppColors.mapBuilding,
-        );
-      }
-      canvas.drawLine(
-        Offset(-30, y),
-        Offset(380, y),
-        Paint()
-          ..color = AppColors.mapRoadDark
-          ..strokeWidth = 4,
-      );
-    }
-    for (var x = 0.0; x < 380; x += 69) {
-      canvas.drawLine(
-        Offset(x, 120),
-        Offset(x, 390),
-        Paint()
-          ..color = AppColors.mapRoad
-          ..strokeWidth = 5,
-      );
-    }
-    canvas.restore();
-    final river = Path()
-      ..moveTo(0, 12)
-      ..lineTo(342, 0)
-      ..lineTo(342, 117)
-      ..cubicTo(317, 120, 324, 176, 266, 210)
-      ..cubicTo(192, 260, 66, 255, 0, 235)
-      ..lineTo(0, 207)
-      ..cubicTo(100, 230, 244, 244, 291, 163)
-      ..lineTo(301, 119)
-      ..lineTo(0, 141)
-      ..close();
-    canvas.drawPath(
-      river,
-      Paint()
-        ..color = AppColors.mapPark
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 25,
-    );
-    canvas.drawPath(river, Paint()..color = AppColors.mapWater);
-    void road(Path path, double width) {
-      canvas.drawPath(
-        path,
-        Paint()
-          ..color = const Color(0xFF111923)
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = width + 4,
-      );
-      canvas.drawPath(
-        path,
-        Paint()
-          ..color = AppColors.mapRoad
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = width,
-      );
-    }
-
-    road(
-      Path()
-        ..moveTo(-10, 150)
-        ..lineTo(300, 128),
-      5,
-    );
-    road(
-      Path()
-        ..moveTo(101, 8)
-        ..lineTo(80, 258),
-      5,
-    );
-    road(
-      Path()
-        ..moveTo(252, 8)
-        ..lineTo(245, 112),
-      5,
-    );
-    road(
-      Path()
-        ..moveTo(0, 270)
-        ..cubicTo(186, 278, 294, 249, 337, 137),
-      7,
-    );
-    final rail = Path()
-      ..moveTo(118, 0)
-      ..lineTo(157, 143)
-      ..cubicTo(153, 183, 51, 165, 35, 191)
-      ..lineTo(0, 321);
-    canvas.drawPath(
-      rail,
-      Paint()
-        ..color = const Color(0xFF8875C7)
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 2,
-    );
-    canvas.drawPath(
-      Path()
-        ..moveTo(0, 178)
-        ..cubicTo(125, 173, 126, 224, 342, 257),
-      Paint()
-        ..color = const Color(0xFFA58D4D)
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 2.5,
-    );
-    final route = Path()
-      ..moveTo(34, 208)
-      ..lineTo(78, 201)
-      ..quadraticBezierTo(88, 199, 87, 211)
-      ..lineTo(85, 227)
-      ..quadraticBezierTo(196, 237, 272, 181)
-      ..quadraticBezierTo(294, 161, 307, 121)
-      ..quadraticBezierTo(240, 117, 168, 127)
-      ..quadraticBezierTo(153, 128, 156, 150);
-    for (final style in [
-      (10.0, const Color(0xFF102D22)),
-      (6.0, const Color(0xFFAC4F00)),
-      (3.0, AppColors.primary),
-    ]) {
-      canvas.drawPath(
-        route,
-        Paint()
-          ..color = style.$2
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = style.$1
-          ..strokeJoin = StrokeJoin.round
-          ..strokeCap = StrokeCap.round,
-      );
-    }
-    void label(String text, Offset offset, Color color, double fontSize) {
-      final tp = TextPainter(
-        text: TextSpan(
-          text: text,
-          style: TextStyle(
-            color: color,
-            fontSize: fontSize,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-        textDirection: TextDirection.ltr,
-      )..layout();
-      tp.paint(canvas, offset);
-    }
-
-    label('한  강', const Offset(142, 55), const Color(0xFF7DABD0), 17);
-    label('원효대교', const Offset(257, 52), AppColors.textSecondary, 10);
-    label('올림픽대로', const Offset(32, 262), AppColors.textSecondary, 10);
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(
-        const Rect.fromLTWH(139, 255, 15, 16),
-        const Radius.circular(5),
-      ),
-      Paint()..color = const Color(0xFF429B61),
-    );
-    label('♣', const Offset(142, 255), Colors.white, 12);
-    label('샛강생태공원', const Offset(158, 256), const Color(0xFFC9D0D6), 10);
-    for (final marker in [const Offset(34, 208), const Offset(156, 150)]) {
-      canvas.drawCircle(marker, 8, Paint()..color = AppColors.background);
-      canvas.drawCircle(marker, 6.5, Paint()..color = Colors.white);
-    }
-    canvas.drawRect(
-      const Rect.fromLTWH(31.5, 205.5, 5, 5),
-      Paint()..color = AppColors.background,
-    );
-    canvas.drawPath(
-      Path()
-        ..moveTo(154, 146)
-        ..lineTo(159, 150)
-        ..lineTo(154, 154)
-        ..close(),
-      Paint()..color = AppColors.background,
-    );
-    canvas.restore();
-  }
-
-  @override
-  bool shouldRepaint(covariant _RouteMapPainter oldDelegate) => false;
 }

@@ -1,5 +1,8 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:runnery_new/account/account_store.dart';
 import 'package:runnery_new/main.dart';
 import 'package:runnery_new/app_start.dart';
 import 'package:runnery_new/login/login.dart';
@@ -15,11 +18,16 @@ void main() {
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
+    // 계정 파일 읽기는 실제 비동기 I/O라서 runAsync에서 먼저 끝냅니다.
+    final dir = Directory.systemTemp.createTempSync('runnery_start_test_');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    AccountStore.instance = AccountStore(directory: () async => dir);
+    await tester.runAsync(AccountStore.instance.load);
     await tester.pumpWidget(const MyApp());
     expect(find.byType(AppStartPage), findsOneWidget);
     await tester.pump(const Duration(milliseconds: 1900));
     await tester.pumpAndSettle();
-    expect(find.byType(LoginPage), findsOneWidget);
+    expect(find.byType(LoginPageV2), findsOneWidget);
     expect(find.byType(AppStartPage), findsNothing);
     expect(tester.takeException(), isNull);
     await tester.tap(find.text('회원가입'));

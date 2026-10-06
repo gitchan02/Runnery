@@ -1,12 +1,16 @@
 import 'package:flutter/material.dart';
 
+import '../account/account_store.dart';
 import '../design_system/app_colors.dart';
 import '../design_system/app_text_styles.dart';
 import '../home/home_page.dart';
+import '../login/login.dart';
+import '../record/data/running_record_store.dart';
+import '../record/models/running_record.dart';
 import '../record/list/record_list_page.dart';
 import 'setting/profile_setting.dart';
 
-/// 시안의 예시 프로필과 누적 기록입니다. 실제 계정/기록 API는 추후 연결합니다.
+/// 로그인한 계정(AccountStore)과 저장된 러닝 기록(RunningRecordStore)을 보여주는 내 정보.
 class ProfileMailPage extends StatefulWidget {
   const ProfileMailPage({
     super.key,
@@ -14,7 +18,13 @@ class ProfileMailPage extends StatefulWidget {
     this.onRecords,
     this.onEditProfile,
     this.onLogout,
+    this.account,
+    this.records,
   });
+
+  /// 기본값은 AccountStore.instance / RunningRecordStore.instance.
+  final AccountStore? account;
+  final RunningRecordStore? records;
   final VoidCallback? onHome;
   final VoidCallback? onRecords;
   final VoidCallback? onEditProfile;
@@ -25,10 +35,41 @@ class ProfileMailPage extends StatefulWidget {
 
 class _ProfileMailPageState extends State<ProfileMailPage> {
   final settings = ProfileSettings();
+  late final AccountStore _account = widget.account ?? AccountStore.instance;
+  late final RunningRecordStore _store =
+      widget.records ?? RunningRecordStore.instance;
+  List<RunningRecord> _records = const [];
+
+  @override
+  void initState() {
+    super.initState();
+    _store.addListener(_reload);
+    _reload();
+  }
+
   @override
   void dispose() {
+    _store.removeListener(_reload);
     settings.dispose();
     super.dispose();
+  }
+
+  Future<void> _reload() async {
+    try {
+      final loaded = await _store.load();
+      if (mounted) setState(() => _records = loaded);
+    } catch (_) {
+      // 기록을 못 읽으면 누적 기록은 0으로 둡니다.
+    }
+  }
+
+  Future<void> _logout() async {
+    await _account.logout();
+    if (!mounted) return;
+    Navigator.of(context).pushAndRemoveUntil<void>(
+      MaterialPageRoute(builder: (_) => LoginPageV2(store: _account)),
+      (_) => false,
+    );
   }
 
   void _action(VoidCallback? action, String label) {
@@ -58,7 +99,7 @@ class _ProfileMailPageState extends State<ProfileMailPage> {
                   widget.onHome!();
                 } else {
                   Navigator.of(context).pushReplacement<void, void>(
-                    MaterialPageRoute(builder: (_) => const HomePage()),
+                    MaterialPageRoute(builder: (_) => const HomePageV2()),
                   );
                 }
               }),
@@ -67,7 +108,7 @@ class _ProfileMailPageState extends State<ProfileMailPage> {
                   widget.onRecords!();
                 } else {
                   Navigator.of(context).pushReplacement<void, void>(
-                    MaterialPageRoute(builder: (_) => const RecordListPage()),
+                    MaterialPageRoute(builder: (_) => const RecordListPageV2()),
                   );
                 }
               }),
@@ -101,7 +142,10 @@ class _ProfileMailPageState extends State<ProfileMailPage> {
                     icon: const Icon(Icons.tune, size: 20),
                     onPressed: () => Navigator.of(context).push<void>(
                       MaterialPageRoute(
-                        builder: (_) => ProfileSettingPage(settings: settings),
+                        builder: (_) => ProfileSettingPage(
+                          settings: settings,
+                          onLogout: widget.onLogout ?? _logout,
+                        ),
                       ),
                     ),
                   ),
@@ -118,8 +162,8 @@ class _ProfileMailPageState extends State<ProfileMailPage> {
                       shape: BoxShape.circle,
                       border: Border.all(color: AppColors.borderControl),
                     ),
-                    child: const Text(
-                      '민',
+                    child: Text(
+                      _account.current?.initial ?? '러',
                       style: TextStyle(
                         fontSize: 24,
                         fontWeight: FontWeight.w700,
@@ -127,21 +171,23 @@ class _ProfileMailPageState extends State<ProfileMailPage> {
                     ),
                   ),
                   const SizedBox(width: 16),
-                  const Expanded(
+                  Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          '김민지',
-                          style: TextStyle(
+                          _account.current?.name ?? '러너',
+                          style: const TextStyle(
                             fontSize: 22,
                             fontWeight: FontWeight.w800,
                           ),
                         ),
-                        SizedBox(height: 4),
+                        const SizedBox(height: 4),
                         Text(
-                          '@minji_run',
-                          style: TextStyle(
+                          _account.current == null
+                              ? ''
+                              : '@${_account.current!.id}',
+                          style: const TextStyle(
                             fontSize: 13,
                             color: AppColors.textSecondary,
                           ),
@@ -206,7 +252,7 @@ class _ProfileMailPageState extends State<ProfileMailPage> {
                                       color: AppColors.textSecondary,
                                     ),
                                   ),
-                                  _value('42', ' 개의 경로', size: 28),
+                                  _value('$_routeCount', ' 개의 경로', size: 28),
                                 ],
                               ),
                             ),
@@ -231,12 +277,20 @@ class _ProfileMailPageState extends State<ProfileMailPage> {
               IntrinsicHeight(
                 child: Row(
                   children: [
-                    Expanded(child: _stat('총 거리', _value('186.4', ' km'))),
+                    Expanded(
+                      child: _stat(
+                        '총 거리',
+                        _value(_totalKm.toStringAsFixed(1), ' km'),
+                      ),
+                    ),
                     const VerticalDivider(width: 1, color: AppColors.divider),
                     Expanded(
                       child: Padding(
                         padding: const EdgeInsets.only(left: 18),
-                        child: _stat('총 러닝', _value('42', ' 회')),
+                        child: _stat(
+                          '총 러닝',
+                          _value('${_records.length}', ' 회'),
+                        ),
                       ),
                     ),
                   ],
@@ -252,7 +306,10 @@ class _ProfileMailPageState extends State<ProfileMailPage> {
                         Text.rich(
                           TextSpan(
                             children: [
-                              TextSpan(text: '19', style: _numberStyle(30)),
+                              TextSpan(
+                                text: '${_totalSeconds ~/ 3600}',
+                                style: _numberStyle(30),
+                              ),
                               const TextSpan(
                                 text: ' 시간 ',
                                 style: TextStyle(
@@ -260,7 +317,10 @@ class _ProfileMailPageState extends State<ProfileMailPage> {
                                   color: AppColors.textSecondary,
                                 ),
                               ),
-                              TextSpan(text: '16', style: _numberStyle(30)),
+                              TextSpan(
+                                text: '${_totalSeconds ~/ 60 % 60}',
+                                style: _numberStyle(30),
+                              ),
                               const TextSpan(
                                 text: ' 분',
                                 style: TextStyle(
@@ -277,7 +337,10 @@ class _ProfileMailPageState extends State<ProfileMailPage> {
                     Expanded(
                       child: Padding(
                         padding: const EdgeInsets.only(left: 18),
-                        child: _stat('태운 햇반', _value('35.5', ' 개')),
+                        child: _stat(
+                          '소모 햇반',
+                          _value(_totalHetbahn.toStringAsFixed(1), ' 개'),
+                        ),
                       ),
                     ),
                   ],
@@ -292,7 +355,11 @@ class _ProfileMailPageState extends State<ProfileMailPage> {
                     Expanded(
                       child: _stat(
                         '체중',
-                        _value('60.0', ' kg', size: 24),
+                        _value(
+                          _account.current?.weightKg.toStringAsFixed(1) ?? '-',
+                          ' kg',
+                          size: 24,
+                        ),
                         compact: true,
                       ),
                     ),
@@ -300,7 +367,11 @@ class _ProfileMailPageState extends State<ProfileMailPage> {
                     Expanded(
                       child: _stat(
                         '나이',
-                        _value('26', ' 세', size: 24),
+                        _value(
+                          '${_account.current?.age ?? '-'}',
+                          ' 세',
+                          size: 24,
+                        ),
                         compact: true,
                       ),
                     ),
@@ -308,9 +379,9 @@ class _ProfileMailPageState extends State<ProfileMailPage> {
                     Expanded(
                       child: _stat(
                         '성별',
-                        const Text(
-                          '여성',
-                          style: TextStyle(
+                        Text(
+                          _account.current?.gender ?? '-',
+                          style: const TextStyle(
                             fontSize: 22,
                             fontWeight: FontWeight.w700,
                           ),
@@ -325,7 +396,7 @@ class _ProfileMailPageState extends State<ProfileMailPage> {
               Align(
                 alignment: Alignment.centerLeft,
                 child: TextButton.icon(
-                  onPressed: () => _action(widget.onLogout, '로그아웃'),
+                  onPressed: widget.onLogout ?? _logout,
                   style: TextButton.styleFrom(
                     padding: EdgeInsets.zero,
                     foregroundColor: AppColors.textSecondary,
@@ -340,6 +411,14 @@ class _ProfileMailPageState extends State<ProfileMailPage> {
       ),
     ),
   );
+
+  int get _routeCount => _records.where((r) => r.route.length >= 2).length;
+  double get _totalKm =>
+      _records.fold<double>(0, (sum, r) => sum + r.distanceKm);
+  int get _totalSeconds =>
+      _records.fold<int>(0, (sum, r) => sum + r.movingSeconds);
+  double get _totalHetbahn =>
+      _records.fold<double>(0, (sum, r) => sum + r.hetbahnCount);
 
   TextStyle _numberStyle(double size) => AppTextStyles.statValue.copyWith(
     fontSize: size,

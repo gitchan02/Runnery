@@ -7,7 +7,7 @@ import 'package:flutter/services.dart';
 import 'design_system/app_colors.dart';
 import 'design_system/app_motion.dart';
 import 'design_system/app_text_styles.dart';
-import 'home/home_page.dart';
+import 'login/login.dart';
 
 /// main.dart의 첫 화면입니다. 다음 화면 미지정 시 홈으로 이동합니다.
 /// 인증 연결 전까지 로그인 화면을 건너뜁니다. 추후 nextPageBuilder로 연결합니다.
@@ -66,7 +66,7 @@ class _AppStartPageState extends State<AppStartPage>
     Navigator.of(context).pushReplacement<void, void>(
       PageRouteBuilder<void>(
         pageBuilder: (context, animation, secondaryAnimation) =>
-            widget.nextPageBuilder?.call(context) ?? const HomePage(),
+            widget.nextPageBuilder?.call(context) ?? const AuthGate(),
         transitionDuration: Duration.zero,
         reverseTransitionDuration: Duration.zero,
       ),

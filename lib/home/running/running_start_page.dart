@@ -9,6 +9,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:maplibre_gl/maplibre_gl.dart' show LatLng;
 import 'package:wakelock_plus/wakelock_plus.dart';
 
+import '../../account/account_store.dart';
 import '../../design_system/app_colors.dart';
 import '../../design_system/app_component_metrics.dart';
 import '../../design_system/app_motion.dart';
@@ -17,6 +18,8 @@ import '../../design_system/app_spacing.dart';
 import '../../design_system/app_text_styles.dart';
 import 'running_home_page.dart';
 import 'running_result_page.dart';
+import '../../record/data/record_from_session.dart';
+import '../../record/data/running_record_store.dart';
 
 // ═════════════════════════════════════════════════════
 // 기준값 · 계산 · 표기
@@ -473,7 +476,7 @@ class RunningSession extends ChangeNotifier {
     _status = RunningStatus.finished;
     return RunningRecord(
       startedAt: _startedAt ?? DateTime.now(),
-      endedAt: _pausedAt ?? DateTime.now(),
+      endedAt: DateTime.now(),
       distanceMeters: _meters,
       movingDuration: elapsed,
       weightKg: weightKg,
@@ -584,11 +587,16 @@ class RunningStartPage extends StatefulWidget {
 class _RunningStartPageState extends State<RunningStartPage> {
   static const _zoom = MapZoom.running;
 
-  final _session = RunningSession(weightKg: RunningConfig.defaultWeightKg);
+  final _session = RunningSession(
+    weightKg:
+        AccountStore.instance.current?.weightKg ??
+        RunningConfig.defaultWeightKg,
+  );
   final _map = RunneryMapController();
   bool _followUser = true;
   bool _showMapLabels = true;
   bool _collapsed = false;
+  bool _ending = false;
   Position? _followedPosition;
 
   @override
@@ -634,6 +642,8 @@ class _RunningStartPageState extends State<RunningStartPage> {
   }
 
   Future<void> _openEndSheet() async {
+    if (_ending) return;
+    _ending = true;
     final wasRunning = _session.status == RunningStatus.running;
     _session.pause();
     final action = await showModalBottomSheet<_EndAction>(
@@ -651,6 +661,43 @@ class _RunningStartPageState extends State<RunningStartPage> {
     switch (action) {
       case _EndAction.save:
         final record = _session.finish();
+        final saved = recordFromSession(record);
+        while (mounted) {
+          try {
+            await RunningRecordStore.instance.save(saved);
+            break;
+          } catch (_) {
+            if (!mounted) return;
+            final retry = await showDialog<bool>(
+              context: context,
+              barrierDismissible: false,
+              builder: (context) => PopScope(
+                canPop: false,
+                child: AlertDialog(
+                  title: const Text('기록 저장 실패'),
+                  content: const Text(
+                    '러닝 기록을 저장하지 못했습니다. 저장 공간을 확인한 후 다시 시도해 주세요.',
+                  ),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(context, false),
+                      child: const Text('저장하지 않고 종료'),
+                    ),
+                    TextButton(
+                      onPressed: () => Navigator.pop(context, true),
+                      child: const Text('다시 저장'),
+                    ),
+                  ],
+                ),
+              ),
+            );
+            if (retry != true) {
+              if (mounted) Navigator.of(context).pop();
+              return;
+            }
+          }
+        }
+        if (!mounted) return;
         Navigator.of(context).pushReplacement(
           runningPushRoute(
             RunningResultPage(record: record),
@@ -661,6 +708,7 @@ class _RunningStartPageState extends State<RunningStartPage> {
         _session.finish();
         Navigator.of(context).pop();
       case _EndAction.keepRunning || null:
+        _ending = false;
         if (wasRunning) _session.resume();
     }
   }
