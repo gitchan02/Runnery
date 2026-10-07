@@ -1,13 +1,19 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
+import 'package:maplibre_gl/maplibre_gl.dart' show LatLng;
 
 import '../account/account_store.dart';
 import '../design_system/app_colors.dart';
 import '../design_system/app_text_styles.dart';
 import '../home/home_page.dart';
+import '../home/running/running_home_page.dart'
+    show MapZoom, RouteWidth, RunneryMap, RunneryMapController;
 import '../login/login.dart';
 import '../record/data/running_record_store.dart';
 import '../record/models/running_record.dart';
 import '../record/list/record_list_page.dart';
+import '../record/list/detail/record_detail_page.dart' show RecordRouteMap;
 import 'setting/profile_setting.dart';
 
 /// 로그인한 계정(AccountStore)과 저장된 러닝 기록(RunningRecordStore)을 보여주는 내 정보.
@@ -214,7 +220,10 @@ class _ProfileMailPageState extends State<ProfileMailPage> {
                 ],
               ),
               const SizedBox(height: 26),
-              _heading('나의 러닝 지도', '여의도 주변'),
+              _heading(
+                '나의 러닝 지도',
+                _mainPlace == null ? null : '$_mainPlace 주변',
+              ),
               const SizedBox(height: 14),
               ClipRRect(
                 borderRadius: BorderRadius.circular(24),
@@ -223,7 +232,7 @@ class _ProfileMailPageState extends State<ProfileMailPage> {
                   child: Stack(
                     fit: StackFit.expand,
                     children: [
-                      const CustomPaint(painter: _RunningMapPainter()),
+                      _RunningRoutesMap(records: _records),
                       const DecoratedBox(
                         decoration: BoxDecoration(
                           gradient: LinearGradient(
@@ -413,6 +422,18 @@ class _ProfileMailPageState extends State<ProfileMailPage> {
   );
 
   int get _routeCount => _records.where((r) => r.route.length >= 2).length;
+
+  /// 가장 자주 달린 장소. 장소 정보가 없으면 캡션을 숨깁니다.
+  String? get _mainPlace {
+    final counts = <String, int>{};
+    for (final r in _records) {
+      if (r.place == '위치 정보 없음' || r.place.isEmpty) continue;
+      counts[r.place] = (counts[r.place] ?? 0) + 1;
+    }
+    if (counts.isEmpty) return null;
+    return counts.entries.reduce((a, b) => b.value > a.value ? b : a).key;
+  }
+
   double get _totalKm =>
       _records.fold<double>(0, (sum, r) => sum + r.distanceKm);
   int get _totalSeconds =>
@@ -508,133 +529,130 @@ class _ProfileMailPageState extends State<ProfileMailPage> {
       );
 }
 
-/// API 연결 전 표시하는 벡터 지도 예시.
-class _RunningMapPainter extends CustomPainter {
-  const _RunningMapPainter();
+/// 저장된 모든 러닝 경로를 반투명하게 겹쳐 그립니다. 여러 번 달린 길일수록 밝아집니다.
+class _RunningRoutesMap extends StatefulWidget {
+  const _RunningRoutesMap({required this.records});
+  final List<RunningRecord> records;
+
   @override
-  void paint(Canvas canvas, Size size) {
-    canvas.save();
-    canvas.scale(size.width / 342, size.height / 230);
-    canvas.drawRect(
-      const Rect.fromLTWH(0, 0, 342, 230),
-      Paint()..color = AppColors.mapLand,
-    );
-    for (var i = 0; i < 12; i++) {
-      final x = i * 33.0;
-      canvas.drawLine(
-        Offset(x, 0),
-        Offset(x - 14, 230),
-        Paint()
-          ..color = AppColors.mapRoad
-          ..strokeWidth = i % 3 == 0 ? 2 : 1,
-      );
-      canvas.drawLine(
-        Offset(0, i * 23.0),
-        Offset(342, i * 23.0 + 20),
-        Paint()
-          ..color = AppColors.mapRoad
-          ..strokeWidth = 1,
-      );
+  State<_RunningRoutesMap> createState() => _RunningRoutesMapState();
+}
+
+class _RunningRoutesMapState extends State<_RunningRoutesMap> {
+  final _controller = RunneryMapController();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  /// 일시정지로 끊긴 구간은 따로 나눕니다.
+  List<List<LatLng>> get _segments {
+    final segments = <List<LatLng>>[];
+    for (final r in widget.records) {
+      if (r.route.length < 2) continue;
+      for (var i = 0; i < r.route.length; i++) {
+        if (i == 0 || r.route[i].startsSegment) segments.add([]);
+        segments.last.add(LatLng(r.route[i].latitude, r.route[i].longitude));
+      }
     }
-    for (final r in [
-      const Rect.fromLTWH(35, 17, 14, 11),
-      const Rect.fromLTWH(270, 22, 13, 13),
-      const Rect.fromLTWH(76, 190, 20, 20),
-    ]) {
-      canvas.drawRect(r, Paint()..color = AppColors.mapPark);
+    return segments.where((s) => s.length >= 2).toList();
+  }
+
+  /// 가장 최근 러닝 근처(15km 이내)의 경로만 화면에 맞춥니다.
+  /// 멀리 떨어진 곳에서 한 번 달린 기록 때문에 지도가 너무 작아지지 않게 합니다.
+  List<LatLng> _fitPoints(List<List<LatLng>> segments) {
+    final anchor = segments.first.first;
+    final cosLat = math.cos(anchor.latitude * math.pi / 180);
+    bool near(LatLng p) {
+      final dy = (p.latitude - anchor.latitude) * 111.0;
+      final dx = (p.longitude - anchor.longitude) * 111.0 * cosLat;
+      return dx * dx + dy * dy < 15 * 15;
     }
-    final river = Path()
-      ..moveTo(0, 61)
-      ..lineTo(210, 42)
-      ..lineTo(342, 49)
-      ..lineTo(342, 103)
-      ..lineTo(0, 123)
-      ..close();
-    canvas.drawPath(river, Paint()..color = AppColors.mapWater);
-    final bank = Path()
-      ..moveTo(26, 116)
-      ..cubicTo(106, 192, 267, 207, 306, 104);
-    canvas.drawPath(
-      bank,
-      Paint()
-        ..color = AppColors.mapRoadLight
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 10,
-    );
-    canvas.drawPath(
-      bank,
-      Paint()
-        ..color = AppColors.mapPark
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 5,
-    );
-    for (var i = 0; i < 5; i++) {
-      final d = i * 2.0;
-      final route = Path()
-        ..moveTo(56 + d, 118)
-        ..lineTo(283 - d, 104 + d)
-        ..cubicTo(251, 193 - d, 116, 188 - d, 56 + d, 118);
-      canvas.drawPath(
-        route,
-        Paint()
-          ..color = AppColors.primary.withValues(alpha: 0.25 + i * 0.12)
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 2
-          ..strokeJoin = StrokeJoin.round,
-      );
-    }
-    final route = Path()
-      ..moveTo(98, 114)
-      ..lineTo(94, 60)
-      ..quadraticBezierTo(93, 55, 103, 54)
-      ..lineTo(251, 44)
-      ..quadraticBezierTo(259, 43, 256, 54)
-      ..lineTo(254, 99)
-      ..lineTo(181, 106)
-      ..lineTo(185, 51);
-    canvas.drawPath(
-      route,
-      Paint()
-        ..color = Colors.black54
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 7,
-    );
-    canvas.drawPath(
-      route,
-      Paint()
-        ..color = AppColors.primary
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 3,
-    );
-    final bridge = Path()
-      ..moveTo(177, 0)
-      ..lineTo(196, 101)
-      ..quadraticBezierTo(226, 145, 147, 139)
-      ..lineTo(128, 230);
-    canvas.drawPath(
-      bridge,
-      Paint()
-        ..color = const Color(0xFF7966AE)
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.5,
-    );
-    for (final position in [const Offset(19, 79), const Offset(192, 66)]) {
-      final label = TextPainter(
-        text: const TextSpan(
-          text: '한 강',
-          style: TextStyle(
-            color: Color(0xFF79A9CB),
-            fontSize: 13,
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-        textDirection: TextDirection.ltr,
-      )..layout();
-      label.paint(canvas, position);
-    }
-    canvas.restore();
+
+    return [
+      for (final s in segments)
+        if (near(s.first)) ...s,
+    ];
   }
 
   @override
-  bool shouldRepaint(covariant _RunningMapPainter oldDelegate) => false;
+  Widget build(BuildContext context) {
+    final segments = _segments;
+    if (segments.isEmpty) {
+      return const ColoredBox(
+        color: AppColors.mapLand,
+        child: Align(
+          alignment: Alignment(0, -0.25),
+          child: Text(
+            '러닝을 기록하면\n달린 길이 이곳에 쌓여요',
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 13, color: AppColors.textTertiary),
+          ),
+        ),
+      );
+    }
+    final fit = _fitPoints(segments);
+    if (!RecordRouteMap.basemapEnabled) {
+      return CustomPaint(painter: _RoutesPainter(segments, fit));
+    }
+    // 기록이 바뀌면 지도를 새로 만들어 다시 맞춥니다(fitPoints는 처음 한 번만 적용).
+    return RunneryMap(
+      key: ValueKey(widget.records.map((r) => r.id).join(',')),
+      controller: _controller,
+      initialCenter: fit.first,
+      initialZoom: MapZoom.basic,
+      interactive: false,
+      routeWidth: RouteWidth.preview,
+      routeOpacity: 0.45,
+      route: segments,
+      fitPoints: fit,
+      // 아래쪽 글자 영역만큼 여백을 더 둡니다.
+      fitPadding: const EdgeInsets.fromLTRB(28, 24, 28, 64),
+    );
+  }
+}
+
+/// 지도 엔진이 없는 위젯 테스트용 대체 그림.
+class _RoutesPainter extends CustomPainter {
+  const _RoutesPainter(this.segments, this.fit);
+  final List<List<LatLng>> segments;
+  final List<LatLng> fit;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    canvas.drawRect(Offset.zero & size, Paint()..color = AppColors.mapLand);
+    final cosLat = math.cos(fit.first.latitude * math.pi / 180);
+    Offset raw(LatLng p) => Offset(p.longitude * cosLat, -p.latitude);
+    final pts = fit.map(raw).toList();
+    final minX = pts.map((p) => p.dx).reduce(math.min);
+    final maxX = pts.map((p) => p.dx).reduce(math.max);
+    final minY = pts.map((p) => p.dy).reduce(math.min);
+    final maxY = pts.map((p) => p.dy).reduce(math.max);
+    final area = Rect.fromLTRB(28, 24, size.width - 28, size.height - 64);
+    final scale = math.min(
+      area.width / math.max(maxX - minX, 1e-9),
+      area.height / math.max(maxY - minY, 1e-9),
+    );
+    final center = Offset((minX + maxX) / 2, (minY + maxY) / 2);
+    final paint = Paint()
+      ..color = AppColors.primary.withValues(alpha: 0.45)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 3
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
+    for (final s in segments) {
+      final path = Path();
+      for (var i = 0; i < s.length; i++) {
+        final p = area.center + (raw(s[i]) - center) * scale;
+        i == 0 ? path.moveTo(p.dx, p.dy) : path.lineTo(p.dx, p.dy);
+      }
+      canvas.drawPath(path, paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _RoutesPainter oldDelegate) =>
+      oldDelegate.segments != segments;
 }

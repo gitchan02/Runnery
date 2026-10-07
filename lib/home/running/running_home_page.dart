@@ -1197,6 +1197,7 @@ class RunneryMap extends StatefulWidget {
     this.showLabels = true,
     this.route = const [],
     this.routeWidth = RouteWidth.running,
+    this.routeOpacity = 1,
     this.markers = const [],
     this.labels = const [],
     this.userLocation,
@@ -1216,6 +1217,9 @@ class RunneryMap extends StatefulWidget {
   /// 일시정지마다 나뉜 경로.
   final List<List<LatLng>> route;
   final double routeWidth;
+
+  /// 1보다 작으면 겹친 경로일수록 진하게 보입니다(내 정보의 러닝 지도).
+  final double routeOpacity;
   final List<MapMarker> markers;
   final List<MapLabel> labels;
   final MapUserLocation? userLocation;
@@ -1238,7 +1242,10 @@ class _RunneryMapState extends State<RunneryMap>
   static const _labelSource = 'runnery-labels';
   static const _meSource = 'runnery-me';
 
-  late final String _style = _runneryMapStyle(widget.routeWidth);
+  late final String _style = _runneryMapStyle(
+    widget.routeWidth,
+    widget.routeOpacity,
+  );
   late final AnimationController _pulse = AnimationController(
     vsync: this,
     duration: AppMotion.locationPulseInterval,
@@ -1525,7 +1532,7 @@ const _labelLayerIds = [
   'poi-subway',
 ];
 
-String _runneryMapStyle(double routeWidth) {
+String _runneryMapStyle(double routeWidth, [double routeOpacity = 1]) {
   const name = [
     'coalesce',
     ['get', 'name:ko'],
@@ -1894,7 +1901,7 @@ String _runneryMapStyle(double routeWidth) {
         'layout': {'line-cap': 'round', 'line-join': 'round'},
         'paint': {
           'line-color': '#000000',
-          'line-opacity': 0.85,
+          'line-opacity': routeOpacity < 1 ? 0.25 : 0.85,
           'line-width': routeWidth + 4,
         },
       },
@@ -1903,7 +1910,11 @@ String _runneryMapStyle(double routeWidth) {
         'type': 'line',
         'source': _RunneryMapState._routeSource,
         'layout': {'line-cap': 'round', 'line-join': 'round'},
-        'paint': {'line-color': '#FF7A00', 'line-width': routeWidth},
+        'paint': {
+          'line-color': '#FF7A00',
+          'line-width': routeWidth,
+          'line-opacity': routeOpacity,
+        },
       },
       {
         'id': 'me-accuracy',
