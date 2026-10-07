@@ -50,19 +50,46 @@ abstract final class RunningConfig {
 
   /// 속도 계산 구간. 1초 단위 GPS 오차가 그래프·최고 속도를 튀게 하지 않도록 묶습니다.
   static const speedWindow = Duration(seconds: 5);
+
+  /// 이 속도(분속 134m ≈ 시속 8km) 미만은 걷기, 이상은 달리기 공식으로 칼로리를 계산합니다.
+  static const walkRunThresholdMetersPerMinute = 134.0;
 }
 
 /// 칼로리·페이스·햇반 환산. 의료용이 아닌 운동 참고용 추정값입니다.
 abstract final class RunningCalc {
-  /// ACSM 러닝 공식: 수평 이동 0.2ml/kg/m + 안정 대사 3.5ml/kg/min, 산소 1L ≈ 5kcal.
-  static double calories({
+  /// 한 구간의 활동 칼로리. 기초대사량(안정 시 3.5ml/kg/min)은 넣지 않습니다.
+  /// ACSM 수평 이동분만 씁니다: 걷기 0.1ml/kg/m, 달리기 0.2ml/kg/m, 산소 1L ≈ 5kcal.
+  static double segmentCalories({
     required double weightKg,
-    required double distanceMeters,
+    required double meters,
     required Duration duration,
   }) {
+    if (meters <= 0) return 0;
     final minutes = duration.inMilliseconds / Duration.millisecondsPerMinute;
-    final oxygenMlPerKg = 0.2 * distanceMeters + 3.5 * minutes;
-    return oxygenMlPerKg * weightKg / 1000 * 5;
+    final metersPerMinute = minutes > 0 ? meters / minutes : 0.0;
+    final oxygenMlPerKgPerMeter =
+        metersPerMinute < RunningConfig.walkRunThresholdMetersPerMinute
+        ? 0.1
+        : 0.2;
+    return oxygenMlPerKgPerMeter * meters * weightKg / 1000 * 5;
+  }
+
+  /// 좌표 사이마다 속도를 보고 걷기·달리기 공식을 골라 더한 활동 칼로리.
+  static double activeCalories(
+    List<List<TrackPoint>> segments,
+    double weightKg,
+  ) {
+    var kcal = 0.0;
+    for (final segment in segments) {
+      for (var i = 1; i < segment.length; i++) {
+        kcal += segmentCalories(
+          weightKg: weightKg,
+          meters: segment[i].meters - segment[i - 1].meters,
+          duration: segment[i].moving - segment[i - 1].moving,
+        );
+      }
+    }
+    return kcal;
   }
 
   /// 1km당 걸린 초. 거리가 너무 짧으면 null.
@@ -249,11 +276,8 @@ class RunningRecord {
     return paused.isNegative ? Duration.zero : paused;
   }
 
-  double get calories => RunningCalc.calories(
-    weightKg: weightKg,
-    distanceMeters: distanceMeters,
-    duration: movingDuration,
-  );
+  /// 활동 칼로리(기초대사량 제외).
+  late final double calories = RunningCalc.activeCalories(segments, weightKg);
 
   double get hetbahnCount => RunningCalc.hetbahnCount(calories);
 
@@ -403,6 +427,7 @@ class RunningSession extends ChangeNotifier {
   Position? _anchor;
   int _outliers = 0;
   double _meters = 0;
+  double _activeKcal = 0;
   Object? _gpsError;
 
   RunningStatus get status => _status;
@@ -426,11 +451,8 @@ class RunningSession extends ChangeNotifier {
   double? get paceSecondsPerKm =>
       RunningCalc.paceSecondsPerKm(_meters, elapsed);
 
-  double get calories => RunningCalc.calories(
-    weightKg: weightKg,
-    distanceMeters: _meters,
-    duration: elapsed,
-  );
+  /// 활동 칼로리(기초대사량 제외). 좌표가 거리에 더해질 때마다 누적합니다.
+  double get calories => _activeKcal;
 
   /// 권한은 시작 화면에서 확인했다고 보고 바로 GPS를 켭니다.
   void start() {
@@ -529,6 +551,12 @@ class RunningSession extends ChangeNotifier {
       }
       return;
     }
+    // 기록(RunningRecord.calories)과 같은 방식: 직전 좌표부터의 거리·운동 시간으로 계산.
+    _activeKcal += RunningCalc.segmentCalories(
+      weightKg: weightKg,
+      meters: meters,
+      duration: _stopwatch.elapsed - _segments.last.last.moving,
+    );
     _meters += meters;
     _setAnchor(p);
   }
