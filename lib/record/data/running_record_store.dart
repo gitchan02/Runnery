@@ -51,6 +51,23 @@ class RunningRecordStore extends ChangeNotifier {
     return operation;
   }
 
+  /// 기록 하나를 지웁니다. 없는 기록이면 아무 일도 하지 않습니다.
+  Future<void> delete(String id) {
+    final operation = _pending.then((_) async {
+      if (!RegExp(r'^[a-zA-Z0-9_-]+$').hasMatch(id)) {
+        throw const FormatException('Invalid record id');
+      }
+      final file = File('${(await _folder()).path}/$id.json');
+      if (await file.exists()) await file.delete();
+      notifyListeners();
+    });
+    _pending = operation.then<void>(
+      (_) {},
+      onError: (Object _, StackTrace _) {},
+    );
+    return operation;
+  }
+
   Future<void> save(RunningRecord record) {
     final operation = _pending.then((_) async {
       if (!RegExp(r'^[a-zA-Z0-9_-]+$').hasMatch(record.id)) {

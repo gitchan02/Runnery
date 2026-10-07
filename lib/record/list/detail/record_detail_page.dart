@@ -20,6 +20,7 @@ const recordMuted = Color(0xFF7D8890);
 const recordSecondary = Color(0xFF999B9B);
 const recordLine = Color(0xFF202527);
 const recordOrange = Color(0xFFFF8A00);
+const recordDelete = Color(0xFFFF5A4F);
 
 TextStyle recordText(
   double size, {
@@ -402,14 +403,41 @@ class _RecordMapPainter extends CustomPainter {
       oldDelegate.route != route || oldDelegate.detailed != detailed;
 }
 
+/// 기록 삭제 전 확인 창. 목록 스와이프와 상세 메뉴가 함께 씁니다.
+Future<bool> confirmRecordDelete(BuildContext context) async =>
+    await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF171818),
+        title: const Text('기록 삭제'),
+        content: const Text('이 러닝 기록을 삭제할까요?\n삭제한 기록은 되돌릴 수 없어요.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('취소'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: TextButton.styleFrom(foregroundColor: recordDelete),
+            child: const Text('삭제'),
+          ),
+        ],
+      ),
+    ) ??
+    false;
+
 class RecordDetailPage extends StatefulWidget {
   const RecordDetailPage({
     super.key,
     this.record,
     this.onMemoChanged,
     this.onSaveMemo,
+    this.onDelete,
   });
   final Future<void> Function(String)? onSaveMemo;
+
+  /// 메뉴의 '기록 삭제'. 없으면 메뉴에 표시하지 않습니다.
+  final Future<void> Function()? onDelete;
   final RunningRecord? record;
 
   /// 저장소 연결 시 메모 변경 내용을 영속화하는 콜백.
@@ -461,6 +489,19 @@ class _RecordDetailPageState extends State<RecordDetailPage> {
           const SnackBar(content: Text('메모 저장에 실패했습니다. 다시 시도해 주세요.')),
         );
       }
+    }
+  }
+
+  Future<void> _delete() async {
+    if (!await confirmRecordDelete(context) || !mounted) return;
+    try {
+      await widget.onDelete!();
+      if (mounted) Navigator.of(context).pop();
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('기록 삭제에 실패했습니다. 다시 시도해 주세요.')),
+      );
     }
   }
 
@@ -623,12 +664,21 @@ class _RecordDetailPageState extends State<RecordDetailPage> {
                               tooltip: '기록 메뉴',
                               icon: const Icon(Icons.more_horiz),
                               color: const Color(0xFF202323),
-                              onSelected: (_) => _editMemo(),
+                              onSelected: (value) =>
+                                  value == 'delete' ? _delete() : _editMemo(),
                               itemBuilder: (_) => [
                                 const PopupMenuItem(
                                   value: 'memo',
                                   child: Text('메모 수정'),
                                 ),
+                                if (widget.onDelete != null)
+                                  const PopupMenuItem(
+                                    value: 'delete',
+                                    child: Text(
+                                      '기록 삭제',
+                                      style: TextStyle(color: recordDelete),
+                                    ),
+                                  ),
                               ],
                             ),
                           ],

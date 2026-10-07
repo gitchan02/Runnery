@@ -35,7 +35,11 @@ class _RecordListPageV2State extends State<RecordListPageV2> {
   List<RunningRecord> _saved = const [];
   bool _loading = true;
   Object? _error;
-  List<RunningRecord> get records => widget.records ?? _saved;
+  // 스와이프로 지운 기록은 저장소를 다시 읽기 전에도 바로 목록에서 뺍니다.
+  final _deleted = <String>{};
+  List<RunningRecord> get records => (widget.records ?? _saved)
+      .where((r) => !_deleted.contains(r.id))
+      .toList();
 
   @override
   void initState() {
@@ -89,6 +93,7 @@ class _RecordListPageV2State extends State<RecordListPageV2> {
         builder: (_) => RecordDetailPage(
           record: r,
           onSaveMemo: (value) => _store.save(r.withMemo(value)),
+          onDelete: () => _store.delete(r.id),
         ),
       ),
     );
@@ -390,7 +395,45 @@ class _RecordListPageV2State extends State<RecordListPageV2> {
     return '${first.month}월 ${first.day}일 – ${last.month != first.month ? '${last.month}월 ' : ''}${last.day}일';
   }
 
-  Widget _recordTile(RunningRecord r) => InkWell(
+  /// 왼쪽으로 밀면 삭제 확인 창을 띄웁니다.
+  Widget _recordTile(RunningRecord r) => Dismissible(
+    key: ValueKey('record-${r.id}'),
+    direction: DismissDirection.endToStart,
+    background: Container(
+      alignment: Alignment.centerRight,
+      padding: const EdgeInsets.only(right: 20),
+      color: recordDelete,
+      child: const Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.delete_outline, color: Colors.white),
+          SizedBox(height: 4),
+          Text(
+            '삭제',
+            style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700),
+          ),
+        ],
+      ),
+    ),
+    confirmDismiss: (_) async {
+      if (!await confirmRecordDelete(context)) return false;
+      try {
+        await _store.delete(r.id);
+        return true;
+      } catch (_) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('기록 삭제에 실패했습니다. 다시 시도해 주세요.')),
+          );
+        }
+        return false;
+      }
+    },
+    onDismissed: (_) => setState(() => _deleted.add(r.id)),
+    child: _recordContent(r),
+  );
+
+  Widget _recordContent(RunningRecord r) => InkWell(
     onTap: () => _openRecord(r),
     child: Container(
       padding: const EdgeInsets.symmetric(vertical: 16),

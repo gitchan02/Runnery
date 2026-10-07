@@ -45,6 +45,17 @@ void main() {
     reopened.dispose();
   });
 
+  test('delete removes only that run and notifies listeners', () async {
+    await store.save(record('keep', DateTime(2026, 9, 30)));
+    await store.save(record('gone', DateTime(2026, 10, 1)));
+    var notified = 0;
+    store.addListener(() => notified++);
+    await store.delete('gone');
+    await store.delete('missing');
+    expect((await store.load()).map((r) => r.id), ['keep']);
+    expect(notified, 2);
+  });
+
   test(
     'retries and memo updates replace the same id without losing GPS',
     () async {
