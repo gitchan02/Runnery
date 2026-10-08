@@ -15,8 +15,6 @@ abstract final class AppMotion {
   static const endConfirmation = Duration(milliseconds: 300);
   static const resultPush = Duration(milliseconds: 350);
 
-  /// 하단 탭 이동: 오른쪽 탭으로 가면 오른쪽에서, 왼쪽 탭으로 가면 왼쪽에서 들어옵니다.
-  static const tabSlide = Duration(milliseconds: 300);
   static const homeDissolve = Duration(milliseconds: 250);
   static const detailPush = Duration(milliseconds: 320);
   static const mapExpand = Duration(milliseconds: 300);
