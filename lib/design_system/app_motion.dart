@@ -2,8 +2,10 @@ import 'package:flutter/animation.dart';
 
 /// 출처: 14 사용자 흐름, 05 현재 위치.
 abstract final class AppMotion {
-  static const splashDelay = Duration(milliseconds: 1900);
-  static const splashTransition = Duration(milliseconds: 250);
+  /// 시작 화면: 선 → 로고 → 속도선 → 하단 정보 순서로 나타나는 시간.
+  static const splashIntro = Duration(milliseconds: 1300);
+  static const splashDelay = Duration(milliseconds: 3000);
+  static const splashTransition = Duration(milliseconds: 400);
   static const splashScale = 1.04;
   static const startSheet = Duration(milliseconds: 300);
   static const countdownTransition = Duration(milliseconds: 200);

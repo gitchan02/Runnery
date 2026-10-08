@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:runnery_new/account/account_store.dart';
 import 'package:runnery_new/main.dart';
 import 'package:runnery_new/app_start.dart';
+import 'package:runnery_new/design_system/app_motion.dart';
 import 'package:runnery_new/login/login.dart';
 import 'package:runnery_new/login/sign_up/basic_info.dart';
 import 'package:runnery_new/login/sign_up/account.dart';
@@ -25,7 +26,7 @@ void main() {
     await tester.runAsync(AccountStore.instance.load);
     await tester.pumpWidget(const MyApp());
     expect(find.byType(AppStartPage), findsOneWidget);
-    await tester.pump(const Duration(milliseconds: 1900));
+    await tester.pump(AppMotion.splashDelay);
     await tester.pumpAndSettle();
     expect(find.byType(LoginPageV2), findsOneWidget);
     expect(find.byType(AppStartPage), findsNothing);
@@ -53,7 +54,7 @@ void main() {
   testWidgets('Disposing splash cancels delayed navigation', (tester) async {
     await tester.pumpWidget(const MyApp());
     await tester.pumpWidget(const SizedBox());
-    await tester.pump(const Duration(seconds: 3));
+    await tester.pump(AppMotion.splashDelay);
     expect(tester.takeException(), isNull);
   });
 }
