@@ -444,14 +444,14 @@ class _ProfileEditPageState extends State<ProfileEditPage> {
                   label: '이름',
                   controller: _name,
                   error: _nameError,
-                  action: TextInputAction.next,
+                  action: TextInputAction.done,
                 ),
                 _Field(
                   label: '이메일',
                   controller: _email,
                   error: _emailError,
                   keyboard: TextInputType.emailAddress,
-                  action: TextInputAction.next,
+                  action: TextInputAction.done,
                 ),
                 _Field(
                   label: '아이디',
@@ -462,7 +462,7 @@ class _ProfileEditPageState extends State<ProfileEditPage> {
                       ? '사용할 수 있는 아이디예요'
                       : null,
                   helper: '로그인 아이디 · 영문 소문자, 숫자, _, 4~16자',
-                  action: TextInputAction.next,
+                  action: TextInputAction.done,
                   formatters: [
                     FilteringTextInputFormatter.deny(RegExp(r'\s')),
                     LengthLimitingTextInputFormatter(16),
