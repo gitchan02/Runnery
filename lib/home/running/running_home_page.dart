@@ -742,6 +742,7 @@ class _StartSheetState extends State<_StartSheet> {
       value: _valueText,
       showPresets: !editing,
       unit: _distance ? '킬로미터' : '시간 : 분',
+      unitShort: _distance ? 'km' : 'h:m',
       editing: editing,
       dimmed: editing && _input!.isEmpty,
       tapRegion: _keypadRegion,
@@ -886,6 +887,7 @@ class _GoalPicker extends StatelessWidget {
   const _GoalPicker({
     required this.value,
     required this.showPresets,
+    required this.unitShort,
     required this.unit,
     required this.editing,
     required this.dimmed,
@@ -899,6 +901,9 @@ class _GoalPicker extends StatelessWidget {
   final String value;
   final bool showPresets;
   final String unit;
+
+  /// 큰 숫자 바로 옆의 짧은 단위. 예: km, h:m
+  final String unitShort;
   final bool editing;
 
   /// 입력 중인데 아직 아무것도 누르지 않았을 때 흐리게 보입니다.
@@ -950,22 +955,38 @@ class _GoalPicker extends StatelessWidget {
                         children: [
                           FittedBox(
                             fit: BoxFit.scaleDown,
-                            child: Text(
-                              value,
-                              maxLines: 1,
-                              style: TextStyle(
-                                fontSize: 64,
-                                height: 1.05,
-                                fontWeight: FontWeight.w900,
-                                fontStyle: FontStyle.italic,
-                                letterSpacing: -1,
-                                fontFeatures: const [
-                                  FontFeature.tabularFigures(),
-                                ],
-                                color: dimmed
-                                    ? AppColors.textTertiary
-                                    : AppColors.textPrimary,
-                              ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              crossAxisAlignment: CrossAxisAlignment.baseline,
+                              textBaseline: TextBaseline.alphabetic,
+                              children: [
+                                Text(
+                                  value,
+                                  maxLines: 1,
+                                  style: TextStyle(
+                                    fontSize: 64,
+                                    height: 1.05,
+                                    fontWeight: FontWeight.w900,
+                                    fontStyle: FontStyle.italic,
+                                    letterSpacing: -1,
+                                    fontFeatures: const [
+                                      FontFeature.tabularFigures(),
+                                    ],
+                                    color: dimmed
+                                        ? AppColors.textTertiary
+                                        : AppColors.textPrimary,
+                                  ),
+                                ),
+                                const SizedBox(width: 6),
+                                Text(
+                                  unitShort,
+                                  style: const TextStyle(
+                                    fontSize: 20,
+                                    fontWeight: FontWeight.w700,
+                                    color: AppColors.textSecondary,
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
                           const SizedBox(height: AppSpacing.space2),
