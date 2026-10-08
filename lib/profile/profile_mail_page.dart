@@ -14,6 +14,7 @@ import '../record/data/running_record_store.dart';
 import '../record/models/running_record.dart';
 import '../record/list/record_list_page.dart';
 import '../record/list/detail/record_detail_page.dart' show RecordRouteMap;
+import 'edit/profile_edit_page.dart';
 import 'setting/profile_setting.dart';
 
 /// 로그인한 계정(AccountStore)과 저장된 러닝 기록(RunningRecordStore)을 보여주는 내 정보.
@@ -54,14 +55,29 @@ class _ProfileMailPageState extends State<ProfileMailPage> {
   void initState() {
     super.initState();
     _store.addListener(_reload);
+    // 프로필 수정에서 저장하면 이름·아이디·사진을 바로 다시 그립니다.
+    _account.addListener(_onAccountChanged);
     _reload();
   }
 
   @override
   void dispose() {
     _store.removeListener(_reload);
+    _account.removeListener(_onAccountChanged);
     settings.dispose();
     super.dispose();
+  }
+
+  void _onAccountChanged() {
+    if (mounted) setState(() {});
+  }
+
+  void _editProfile() {
+    if (widget.onEditProfile != null) return widget.onEditProfile!();
+    if (_account.current == null) return;
+    Navigator.of(context).push<void>(
+      MaterialPageRoute(builder: (_) => ProfileEditPage(store: _account)),
+    );
   }
 
   Future<void> _reload() async {
@@ -80,15 +96,6 @@ class _ProfileMailPageState extends State<ProfileMailPage> {
       MaterialPageRoute(builder: (_) => LoginPageV2(store: _account)),
       (_) => false,
     );
-  }
-
-  void _action(VoidCallback? action, String label) {
-    if (action != null) {
-      action();
-      return;
-    }
-    ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(content: Text('$label 기능은 준비 중이에요')));
   }
 
   @override
@@ -158,6 +165,7 @@ class _ProfileMailPageState extends State<ProfileMailPage> {
                       MaterialPageRoute(
                         builder: (_) => ProfileSettingPage(
                           settings: settings,
+                          onEditProfile: _editProfile,
                           onLogout: widget.onLogout ?? _logout,
                         ),
                       ),
@@ -175,14 +183,22 @@ class _ProfileMailPageState extends State<ProfileMailPage> {
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
                       border: Border.all(color: AppColors.borderControl),
+                      image: _account.photoFile == null
+                          ? null
+                          : DecorationImage(
+                              image: FileImage(_account.photoFile!),
+                              fit: BoxFit.cover,
+                            ),
                     ),
-                    child: Text(
-                      _account.current?.initial ?? '러',
-                      style: TextStyle(
-                        fontSize: 24,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
+                    child: _account.photoFile != null
+                        ? null
+                        : Text(
+                            _account.current?.initial ?? '러',
+                            style: TextStyle(
+                              fontSize: 24,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
                   ),
                   const SizedBox(width: 16),
                   Expanded(
@@ -210,7 +226,7 @@ class _ProfileMailPageState extends State<ProfileMailPage> {
                     ),
                   ),
                   OutlinedButton(
-                    onPressed: () => _action(widget.onEditProfile, '프로필 수정'),
+                    onPressed: _editProfile,
                     style: OutlinedButton.styleFrom(
                       foregroundColor: Colors.white,
                       side: const BorderSide(color: AppColors.borderDefault),

@@ -27,10 +27,15 @@ class Account {
     required this.age,
     required this.gender,
     required this.weightKg,
+    this.photo,
   });
   final String name, email, id, gender;
   final int age;
   final double weightKg;
+
+  /// 프로필 사진 파일 이름(앱 Documents 폴더 안). 없으면 이름 첫 글자를 보여 줍니다.
+  /// 앱을 다시 설치하면 폴더 경로가 바뀌므로 전체 경로가 아닌 파일 이름만 저장합니다.
+  final String? photo;
 
   /// 아바타에 쓰는 이름 첫 글자.
   String get initial =>
@@ -55,6 +60,7 @@ class AccountStore extends ChangeNotifier {
   RunningRecordStore get records => _records ?? RunningRecordStore.instance;
 
   Account? _account;
+  String? _folderPath;
   String? _salt, _hash;
   bool _loggedIn = false;
   bool _loaded = false;
@@ -67,8 +73,16 @@ class AccountStore extends ChangeNotifier {
   /// 로그인한 사용자. 로그아웃 상태면 null.
   Account? get current => isLoggedIn ? _account : null;
 
-  Future<File> _file() async =>
-      File('${(await _directory()).path}/account.json');
+  /// 로그인한 사용자의 프로필 사진 파일. 없으면 null.
+  File? get photoFile {
+    final photo = current?.photo, folder = _folderPath;
+    return photo == null || folder == null ? null : File('$folder/$photo');
+  }
+
+  Future<File> _file() async {
+    _folderPath = (await _directory()).path;
+    return File('$_folderPath/account.json');
+  }
 
   /// 저장된 계정과 로그인 상태를 읽습니다. 파일이 없거나 깨졌으면 계정 없음으로 봅니다.
   Future<void> load() async {
@@ -89,6 +103,7 @@ class AccountStore extends ChangeNotifier {
         age: json['age'] as int,
         gender: json['gender'] as String,
         weightKg: (json['weightKg'] as num).toDouble(),
+        photo: json['photo'] as String?,
       );
       _salt = json['salt'] as String;
       _hash = json['hash'] as String;
@@ -128,6 +143,7 @@ class AccountStore extends ChangeNotifier {
           'age': a.age,
           'gender': a.gender,
           'weightKg': a.weightKg,
+          'photo': a.photo,
           'salt': _salt,
           'hash': _hash,
           'loggedIn': _loggedIn,
@@ -175,6 +191,47 @@ class AccountStore extends ChangeNotifier {
     }
     _loggedIn = true;
     await _write();
+    notifyListeners();
+  }
+
+  /// 프로필 수정 화면에서 바꾼 정보를 저장합니다. 비밀번호와 러닝 기록은 그대로입니다.
+  /// [newPhoto]가 있으면 앱 폴더로 복사해 프로필 사진으로 쓰고, [removePhoto]면 사진을 지웁니다.
+  Future<void> updateProfile({
+    required String name,
+    required String email,
+    required String id,
+    required int age,
+    required String gender,
+    required double weightKg,
+    File? newPhoto,
+    bool removePhoto = false,
+  }) async {
+    final old = _account;
+    if (old == null) throw const AuthException('가입된 계정이 없어요');
+    var photo = removePhoto ? null : old.photo;
+    final folder = (await _file()).parent.path;
+    if (newPhoto != null) {
+      photo = 'profile_${DateTime.now().millisecondsSinceEpoch}.jpg';
+      await newPhoto.copy('$folder/$photo');
+    }
+    _account = Account(
+      name: name.trim(),
+      email: email.trim(),
+      id: id.trim(),
+      age: age,
+      gender: gender,
+      weightKg: weightKg,
+      photo: photo,
+    );
+    await _write();
+    // 새 정보를 저장한 뒤에 이전 사진을 지워, 저장이 실패해도 사진이 사라지지 않게 합니다.
+    if (old.photo != null && old.photo != photo) {
+      try {
+        await File('$folder/${old.photo}').delete();
+      } on FileSystemException {
+        // 이미 없으면 그대로 둡니다.
+      }
+    }
     notifyListeners();
   }
 
