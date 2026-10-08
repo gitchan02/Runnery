@@ -73,10 +73,13 @@ class RunningStartOptions {
 abstract final class RunningGoal {
   static const defaultKm = 5.0;
   static const defaultMinutes = 30;
-  static const kmPresets = [3.0, 5.0, 10.0, 21.1];
-  static const minutePresets = [20, 30, 45, 60];
-  static const kmStep = 0.5, minKm = 0.5, maxKm = 100.0;
-  static const minuteStep = 5, minMinutes = 5, maxMinutes = 300;
+  static const kmPresets = [3.0, 5.0, 10.0];
+  static const minutePresets = [10, 30, 60];
+  static const kmStep = 0.5, minKm = 0.1, maxKm = 99.99;
+  static const minuteStep = 5, minMinutes = 1, maxMinutes = 9 * 60 + 59;
+
+  /// 0.01 km 단위로 맞춥니다(더하고 빼며 생기는 소수 오차 제거).
+  static double roundKm(double km) => (km * 100).round() / 100;
 
   /// 5 km, 21.1 km
   static String km(double km) =>
@@ -144,6 +147,7 @@ class _RunningHomePageState extends State<RunningHomePage> {
   RunningMode _mode = RunningMode.free;
   double _goalKm = RunningGoal.defaultKm;
   int _goalMinutes = RunningGoal.defaultMinutes;
+  bool _editingGoal = false;
   bool _voiceGuide = true;
   bool _autoPause = true;
   bool _countingDown = false;
@@ -412,39 +416,43 @@ class _RunningHomePageState extends State<RunningHomePage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    Padding(
-                      padding: EdgeInsets.only(
-                        left:
-                            AppSpacing.mapScaleLeft -
-                            AppSpacing.mapCardHorizontal,
+                // 목표 키패드가 열리면 시트가 위로 올라갈 자리를 비웁니다.
+                if (!_editingGoal) ...[
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Padding(
+                        padding: EdgeInsets.only(
+                          left:
+                              AppSpacing.mapScaleLeft -
+                              AppSpacing.mapCardHorizontal,
+                        ),
+                        child: MapScaleBar(camera: _map),
                       ),
-                      child: MapScaleBar(camera: _map),
-                    ),
-                    const Spacer(),
-                    Column(
-                      children: [
-                        MapCircleButton(
-                          icon: Icons.layers_outlined,
-                          tooltip: _showMapLabels ? '지명 숨기기' : '지명 보기',
-                          onPressed: () =>
-                              setState(() => _showMapLabels = !_showMapLabels),
-                        ),
-                        const SizedBox(height: AppSpacing.mapControlGap),
-                        MapCircleButton(
-                          icon: _followUser
-                              ? Icons.my_location
-                              : Icons.location_searching,
-                          tooltip: '현재 위치',
-                          onPressed: _recenter,
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-                const SizedBox(height: AppSpacing.mapControlAboveCard),
+                      const Spacer(),
+                      Column(
+                        children: [
+                          MapCircleButton(
+                            icon: Icons.layers_outlined,
+                            tooltip: _showMapLabels ? '지명 숨기기' : '지명 보기',
+                            onPressed: () => setState(
+                              () => _showMapLabels = !_showMapLabels,
+                            ),
+                          ),
+                          const SizedBox(height: AppSpacing.mapControlGap),
+                          MapCircleButton(
+                            icon: _followUser
+                                ? Icons.my_location
+                                : Icons.location_searching,
+                            tooltip: '현재 위치',
+                            onPressed: _recenter,
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: AppSpacing.mapControlAboveCard),
+                ],
                 _StartSheet(
                   mode: _mode,
                   goalKm: _goalKm,
@@ -452,6 +460,8 @@ class _RunningHomePageState extends State<RunningHomePage> {
                   onGoalKmChanged: (km) => setState(() => _goalKm = km),
                   onGoalMinutesChanged: (minutes) =>
                       setState(() => _goalMinutes = minutes),
+                  onEditingChanged: (editing) =>
+                      setState(() => _editingGoal = editing),
                   voiceGuide: _voiceGuide,
                   autoPause: _autoPause,
                   // 권한은 있는데 첫 위치를 아직 못 받았을 때만 비활성.
@@ -560,13 +570,14 @@ class _ScaleBarPainter extends CustomPainter {
 
 // ── 시작 시트 ─────────────────────────────────────────
 
-class _StartSheet extends StatelessWidget {
+class _StartSheet extends StatefulWidget {
   const _StartSheet({
     required this.mode,
     required this.goalKm,
     required this.goalMinutes,
     required this.onGoalKmChanged,
     required this.onGoalMinutesChanged,
+    required this.onEditingChanged,
     required this.voiceGuide,
     required this.autoPause,
     required this.canStart,
@@ -581,6 +592,9 @@ class _StartSheet extends StatelessWidget {
   final int goalMinutes;
   final ValueChanged<double> onGoalKmChanged;
   final ValueChanged<int> onGoalMinutesChanged;
+
+  /// 목표 키패드가 열리고 닫힐 때. 열려 있는 동안 지도 버튼을 숨겨 시트가 위로 올라갈 자리를 만듭니다.
+  final ValueChanged<bool> onEditingChanged;
   final bool voiceGuide;
   final bool autoPause;
   final bool canStart;
@@ -589,17 +603,191 @@ class _StartSheet extends StatelessWidget {
   final VoidCallback onAutoPauseToggled;
   final VoidCallback onStart;
 
-  String get _description => switch (mode) {
+  @override
+  State<_StartSheet> createState() => _StartSheetState();
+}
+
+class _StartSheetState extends State<_StartSheet> {
+  /// 숫자와 키패드를 한 영역으로 묶어, 그 바깥을 누르면 입력을 확정합니다.
+  static const _keypadRegion = Object();
+
+  /// 키패드로 입력 중인 글자. null이면 키패드가 닫혀 있습니다.
+  String? _input;
+  String? _notice;
+  Timer? _noticeTimer;
+
+  bool get _distance => widget.mode == RunningMode.distanceGoal;
+
+  String get _description => switch (widget.mode) {
     RunningMode.free =>
-      voiceGuide ? '목표 없이 편하게 달려요. 1 km마다 음성으로 알려드려요.' : '목표 없이 편하게 달려요.',
+      widget.voiceGuide
+          ? '목표 없이 편하게 달려요. 1 km마다 음성으로 알려드려요.'
+          : '목표 없이 편하게 달려요.',
     RunningMode.distanceGoal =>
-      voiceGuide ? '정한 거리를 채우면 음성으로 알려드려요.' : '정한 거리까지 달려요.',
+      widget.voiceGuide ? '정한 거리를 채우면 음성으로 알려드려요.' : '정한 거리까지 달려요.',
     RunningMode.timeGoal =>
-      voiceGuide ? '정한 시간이 되면 음성으로 알려드려요.' : '정한 시간 동안 달려요.',
+      widget.voiceGuide ? '정한 시간을 채우면 음성으로 알려드려요.' : '정한 시간 동안 달려요.',
   };
 
   @override
+  void dispose() {
+    _noticeTimer?.cancel();
+    super.dispose();
+  }
+
+  void _showNotice(String text) {
+    HapticFeedback.heavyImpact();
+    _noticeTimer?.cancel();
+    setState(() => _notice = text);
+    _noticeTimer = Timer(const Duration(milliseconds: 2500), () {
+      if (mounted) setState(() => _notice = null);
+    });
+  }
+
+  void _openKeypad() {
+    if (_input != null) return;
+    HapticFeedback.selectionClick();
+    setState(() => _input = '');
+    widget.onEditingChanged(true);
+  }
+
+  /// 키패드를 닫고 값을 확정합니다. 빈 값이면 이전 값을 그대로 둡니다.
+  void _closeKeypad() {
+    final input = _input;
+    if (input == null) return;
+    setState(() => _input = null);
+    widget.onEditingChanged(false);
+    if (input.isEmpty) return;
+    if (_distance) {
+      final km = double.tryParse(input);
+      if (km == null || km < RunningGoal.minKm || km > RunningGoal.maxKm) {
+        return _showNotice('0.1 ~ 99.99 km 사이로 입력해 주세요');
+      }
+      widget.onGoalKmChanged(RunningGoal.roundKm(km));
+    } else {
+      final (h, m) = _timeDigits(input);
+      if (m > 59) return _showNotice('분은 59분까지 입력할 수 있어요');
+      final minutes = h * 60 + m;
+      if (minutes < RunningGoal.minMinutes ||
+          minutes > RunningGoal.maxMinutes) {
+        return _showNotice('1분 ~ 9시간 59분 사이로 입력해 주세요');
+      }
+      widget.onGoalMinutesChanged(minutes);
+    }
+  }
+
+  /// 시간은 오른쪽부터 채웁니다: 4 → 00:04, 45 → 00:45, 130 → 01:30.
+  static (int, int) _timeDigits(String input) {
+    final digits = input.padLeft(4, '0');
+    return (int.parse(digits.substring(0, 2)), int.parse(digits.substring(2)));
+  }
+
+  void _onKey(String key) {
+    final input = _input;
+    if (input == null) return;
+    HapticFeedback.selectionClick();
+    final String next;
+    if (key == '⌫') {
+      next = input.isEmpty ? input : input.substring(0, input.length - 1);
+    } else if (_distance) {
+      final dot = input.indexOf('.');
+      if (key == '.') {
+        next = dot >= 0 ? input : (input.isEmpty ? '0.' : '$input.');
+      } else if (dot >= 0) {
+        // 소수점 아래는 둘째 자리까지.
+        next = input.length - dot > 2 ? input : input + key;
+      } else {
+        // 정수는 두 자리(99)까지, 앞자리 0은 하나만.
+        next = input == '0'
+            ? key
+            : input.length >= 2
+            ? input
+            : input + key;
+      }
+    } else {
+      // 4자리(9:59)까지. 맨 앞의 0은 의미가 없어 받지 않습니다.
+      next = input.length >= 4 || (input.isEmpty && key == '0')
+          ? input
+          : input + key;
+    }
+    setState(() => _input = next);
+  }
+
+  String get _valueText {
+    final input = _input;
+    if (_distance) {
+      if (input == null) return widget.goalKm.toStringAsFixed(2);
+      return input.isEmpty ? '0.00' : input;
+    }
+    final (h, m) = input == null
+        ? (widget.goalMinutes ~/ 60, widget.goalMinutes % 60)
+        : _timeDigits(input);
+    return '${h.toString().padLeft(2, '0')}:${m.toString().padLeft(2, '0')}';
+  }
+
+  Widget _goal() {
+    final km = widget.goalKm, minutes = widget.goalMinutes;
+    final editing = _input != null;
+    final double? snappedDown = _distance
+        ? RunningGoal.roundKm(
+            ((km / RunningGoal.kmStep - 1e-9).ceil() - 1) * RunningGoal.kmStep,
+          )
+        : null;
+    final double? snappedUp = _distance
+        ? RunningGoal.roundKm(
+            ((km / RunningGoal.kmStep + 1e-9).floor() + 1) * RunningGoal.kmStep,
+          )
+        : null;
+    return _GoalPicker(
+      value: _valueText,
+      showPresets: !editing,
+      unit: _distance ? '킬로미터' : '시간 : 분',
+      editing: editing,
+      dimmed: editing && _input!.isEmpty,
+      tapRegion: _keypadRegion,
+      onValueTap: _openKeypad,
+      presets: _distance
+          ? [
+              for (final p in RunningGoal.kmPresets)
+                (
+                  RunningGoal.km(p),
+                  (p - km).abs() < 0.001,
+                  () => widget.onGoalKmChanged(p),
+                ),
+            ]
+          : [
+              for (final p in RunningGoal.minutePresets)
+                (
+                  RunningGoal.minutes(p),
+                  p == minutes,
+                  () => widget.onGoalMinutesChanged(p),
+                ),
+            ],
+      onMinus: _distance
+          ? (snappedDown! >= RunningGoal.minKm
+                ? () => widget.onGoalKmChanged(snappedDown)
+                : null)
+          : (minutes - RunningGoal.minuteStep >= RunningGoal.minMinutes
+                ? () => widget.onGoalMinutesChanged(
+                    minutes - RunningGoal.minuteStep,
+                  )
+                : null),
+      onPlus: _distance
+          ? (snappedUp! <= RunningGoal.maxKm
+                ? () => widget.onGoalKmChanged(snappedUp)
+                : null)
+          : (minutes + RunningGoal.minuteStep <= RunningGoal.maxMinutes
+                ? () => widget.onGoalMinutesChanged(
+                    minutes + RunningGoal.minuteStep,
+                  )
+                : null),
+    );
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final editing = _input != null;
+    final notice = _notice;
     return Container(
       padding: const EdgeInsets.all(AppSpacing.space5),
       decoration: BoxDecoration(
@@ -610,93 +798,82 @@ class _StartSheet extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            '어떻게 달릴까요?',
-            style: TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.w700,
-              color: AppColors.textPrimary,
-            ),
-          ),
-          const SizedBox(height: AppSpacing.space4),
-          _ModeSegment(selected: mode, onChanged: onModeChanged),
-          if (mode == RunningMode.distanceGoal)
-            _GoalPicker(
-              label: RunningGoal.km(goalKm),
-              presets: [
-                for (final km in RunningGoal.kmPresets)
-                  (RunningGoal.km(km), km == goalKm, () => onGoalKmChanged(km)),
-              ],
-              onMinus: goalKm > RunningGoal.minKm
-                  ? () => onGoalKmChanged(
-                      ((goalKm / RunningGoal.kmStep).ceil() - 1) *
-                          RunningGoal.kmStep,
-                    )
-                  : null,
-              // 21.1처럼 단위에 맞지 않는 값에서도 0.5 km 칸에 맞춰 내리고 올립니다.
-              onPlus: goalKm < RunningGoal.maxKm
-                  ? () => onGoalKmChanged(
-                      ((goalKm / RunningGoal.kmStep).floor() + 1) *
-                          RunningGoal.kmStep,
-                    )
-                  : null,
-            ),
-          if (mode == RunningMode.timeGoal)
-            _GoalPicker(
-              label: RunningGoal.minutes(goalMinutes),
-              presets: [
-                for (final m in RunningGoal.minutePresets)
-                  (
-                    RunningGoal.minutes(m),
-                    m == goalMinutes,
-                    () => onGoalMinutesChanged(m),
-                  ),
-              ],
-              onMinus: goalMinutes > RunningGoal.minMinutes
-                  ? () => onGoalMinutesChanged(
-                      goalMinutes - RunningGoal.minuteStep,
-                    )
-                  : null,
-              onPlus: goalMinutes < RunningGoal.maxMinutes
-                  ? () => onGoalMinutesChanged(
-                      goalMinutes + RunningGoal.minuteStep,
-                    )
-                  : null,
-            ),
-          const SizedBox(height: AppSpacing.space3),
-          Text(
-            _description,
-            style: const TextStyle(
-              fontSize: 12,
-              color: AppColors.textSecondary,
-            ),
-          ),
-          const SizedBox(height: AppSpacing.space3),
-          Wrap(
-            spacing: AppSpacing.space2,
-            runSpacing: AppSpacing.space2,
-            children: [
-              StatusChip(
-                label: voiceGuide ? '음성 안내 켜짐' : '음성 안내 꺼짐',
-                icon: voiceGuide
-                    ? Icons.volume_up_outlined
-                    : Icons.volume_off_outlined,
-                floating: false,
-                onTap: onVoiceGuideToggled,
+          // 키패드를 여는 동안에는 숫자·시작하기·키패드만 남겨 작은 화면에서도 가려지지 않게 합니다.
+          if (!editing) ...[
+            const Text(
+              '어떻게 달릴까요?',
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.w700,
+                color: AppColors.textPrimary,
               ),
-              StatusChip(
-                label: autoPause ? '자동 일시정지 켜짐' : '자동 일시정지 꺼짐',
-                icon: Icons.pause,
-                floating: false,
-                onTap: onAutoPauseToggled,
+            ),
+            const SizedBox(height: AppSpacing.space4),
+            _ModeSegment(
+              selected: widget.mode,
+              onChanged: widget.onModeChanged,
+            ),
+          ],
+          if (widget.mode != RunningMode.free) _goal(),
+          const SizedBox(height: AppSpacing.space3),
+          if (notice != null)
+            Text(
+              notice,
+              style: const TextStyle(fontSize: 12, color: AppColors.error),
+            )
+          else if (!editing)
+            Text(
+              _description,
+              style: const TextStyle(
+                fontSize: 12,
+                color: AppColors.textSecondary,
               ),
-            ],
-          ),
+            ),
+          if (!editing) ...[
+            const SizedBox(height: AppSpacing.space3),
+            Wrap(
+              spacing: AppSpacing.space2,
+              runSpacing: AppSpacing.space2,
+              children: [
+                StatusChip(
+                  label: widget.voiceGuide ? '음성 안내 켜짐' : '음성 안내 꺼짐',
+                  icon: widget.voiceGuide
+                      ? Icons.volume_up_outlined
+                      : Icons.volume_off_outlined,
+                  floating: false,
+                  onTap: widget.onVoiceGuideToggled,
+                ),
+                StatusChip(
+                  label: widget.autoPause ? '자동 일시정지 켜짐' : '자동 일시정지 꺼짐',
+                  icon: Icons.pause,
+                  floating: false,
+                  onTap: widget.onAutoPauseToggled,
+                ),
+              ],
+            ),
+          ],
           const SizedBox(height: AppSpacing.space5),
           PrimaryButton(
             label: '시작하기',
             icon: Icons.play_arrow_rounded,
-            onPressed: canStart ? onStart : null,
+            onPressed: widget.canStart ? widget.onStart : null,
+          ),
+          AnimatedSize(
+            duration: AppMotion.startSheet,
+            curve: AppMotion.pushSlideCurve,
+            alignment: Alignment.topCenter,
+            child: editing
+                ? TapRegion(
+                    groupId: _keypadRegion,
+                    // 숫자·키패드 바깥(지도, 칩, 시작하기 등)을 누르면 입력을 확정합니다.
+                    onTapOutside: (_) => _closeKeypad(),
+                    child: _GoalKeypad(
+                      decimal: _distance,
+                      onKey: _onKey,
+                      onDone: _closeKeypad,
+                    ),
+                  )
+                : const SizedBox(width: double.infinity),
           ),
         ],
       ),
@@ -704,16 +881,30 @@ class _StartSheet extends StatelessWidget {
   }
 }
 
-/// 거리·시간 목표 값 고르기: − 값 + 와 자주 쓰는 값 버튼.
+/// 거리·시간 목표: 크게 보이는 목표 숫자와 양옆 −/+, 자주 쓰는 값 버튼.
 class _GoalPicker extends StatelessWidget {
   const _GoalPicker({
-    required this.label,
+    required this.value,
+    required this.showPresets,
+    required this.unit,
+    required this.editing,
+    required this.dimmed,
+    required this.tapRegion,
+    required this.onValueTap,
     required this.presets,
     required this.onMinus,
     required this.onPlus,
   });
 
-  final String label;
+  final String value;
+  final bool showPresets;
+  final String unit;
+  final bool editing;
+
+  /// 입력 중인데 아직 아무것도 누르지 않았을 때 흐리게 보입니다.
+  final bool dimmed;
+  final Object tapRegion;
+  final VoidCallback onValueTap;
 
   /// (문구, 선택됨, 눌렀을 때)
   final List<(String, bool, VoidCallback)> presets;
@@ -740,68 +931,188 @@ class _GoalPicker extends StatelessWidget {
         );
 
     return Padding(
-      padding: const EdgeInsets.only(top: AppSpacing.space4),
+      padding: EdgeInsets.only(top: editing ? 0 : AppSpacing.space5),
       child: Column(
         children: [
           Row(
             children: [
               step(Icons.remove, '목표 줄이기', onMinus),
               Expanded(
-                child: Text(
-                  label,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    fontSize: 28,
-                    fontWeight: FontWeight.w700,
-                    color: AppColors.textPrimary,
+                child: TapRegion(
+                  groupId: tapRegion,
+                  child: Semantics(
+                    button: true,
+                    label: '목표 직접 입력',
+                    child: GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTap: onValueTap,
+                      child: Column(
+                        children: [
+                          FittedBox(
+                            fit: BoxFit.scaleDown,
+                            child: Text(
+                              value,
+                              maxLines: 1,
+                              style: TextStyle(
+                                fontSize: 64,
+                                height: 1.05,
+                                fontWeight: FontWeight.w900,
+                                fontStyle: FontStyle.italic,
+                                letterSpacing: -1,
+                                fontFeatures: const [
+                                  FontFeature.tabularFigures(),
+                                ],
+                                color: dimmed
+                                    ? AppColors.textTertiary
+                                    : AppColors.textPrimary,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: AppSpacing.space2),
+                          // 입력 중에는 밑줄을 굵게 해 바로 입력되는 곳임을 보여 줍니다.
+                          AnimatedContainer(
+                            duration: const Duration(milliseconds: 150),
+                            width: 180,
+                            height: editing ? 3 : 2,
+                            color: AppColors.textPrimary,
+                          ),
+                          const SizedBox(height: AppSpacing.space2),
+                          Text(
+                            unit,
+                            style: const TextStyle(
+                              fontSize: 13,
+                              color: AppColors.textSecondary,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                   ),
                 ),
               ),
               step(Icons.add, '목표 늘리기', onPlus),
             ],
           ),
-          const SizedBox(height: AppSpacing.space3),
-          Row(
-            children: [
-              for (final (i, (text, selected, onTap)) in presets.indexed) ...[
-                if (i > 0) const SizedBox(width: AppSpacing.space2),
-                Expanded(
-                  child: GestureDetector(
-                    behavior: HitTestBehavior.opaque,
-                    onTap: onTap,
-                    child: AnimatedContainer(
-                      duration: const Duration(milliseconds: 150),
-                      height: 34,
-                      alignment: Alignment.center,
-                      decoration: BoxDecoration(
-                        color: selected
-                            ? AppColors.textPrimary
-                            : Colors.transparent,
-                        borderRadius: AppRadius.pillBorder,
-                        border: Border.all(
+          if (showPresets) ...[
+            const SizedBox(height: AppSpacing.space5),
+            Row(
+              children: [
+                for (final (i, (text, selected, onTap)) in presets.indexed) ...[
+                  if (i > 0) const SizedBox(width: AppSpacing.space2),
+                  Expanded(
+                    child: GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTap: () {
+                        HapticFeedback.selectionClick();
+                        onTap();
+                      },
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 150),
+                        height: 36,
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(
                           color: selected
                               ? AppColors.textPrimary
-                              : AppColors.borderDefault,
+                              : Colors.transparent,
+                          borderRadius: AppRadius.pillBorder,
+                          border: Border.all(
+                            color: selected
+                                ? AppColors.textPrimary
+                                : AppColors.borderDefault,
+                          ),
                         ),
-                      ),
-                      child: Text(
-                        text,
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: selected
-                              ? FontWeight.w700
-                              : FontWeight.w500,
-                          color: selected
-                              ? Colors.black
-                              : AppColors.textSecondary,
+                        child: Text(
+                          text,
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: selected
+                                ? FontWeight.w700
+                                : FontWeight.w500,
+                            color: selected
+                                ? Colors.black
+                                : AppColors.textSecondary,
+                          ),
                         ),
                       ),
                     ),
                   ),
-                ),
+                ],
               ],
-            ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// 목표 직접 입력 키패드. 거리는 소수점 키가 있고, 시간은 숫자만 받습니다.
+class _GoalKeypad extends StatelessWidget {
+  const _GoalKeypad({
+    required this.decimal,
+    required this.onKey,
+    required this.onDone,
+  });
+
+  final bool decimal;
+  final ValueChanged<String> onKey;
+  final VoidCallback onDone;
+
+  @override
+  Widget build(BuildContext context) {
+    Widget key(String label) => Expanded(
+      child: label.isEmpty
+          ? const SizedBox(height: 48)
+          : InkWell(
+              borderRadius: BorderRadius.circular(12),
+              onTap: () => onKey(label),
+              child: SizedBox(
+                height: 48,
+                child: Center(
+                  child: label == '⌫'
+                      ? const Icon(
+                          Icons.backspace_outlined,
+                          color: AppColors.textPrimary,
+                          semanticLabel: '지우기',
+                        )
+                      : Text(
+                          label,
+                          style: const TextStyle(
+                            fontSize: 24,
+                            fontWeight: FontWeight.w600,
+                            color: AppColors.textPrimary,
+                          ),
+                        ),
+                ),
+              ),
+            ),
+    );
+
+    return Padding(
+      padding: const EdgeInsets.only(top: AppSpacing.space3),
+      child: Column(
+        children: [
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton(
+              onPressed: onDone,
+              child: const Text(
+                '완료',
+                style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.textPrimary,
+                ),
+              ),
+            ),
           ),
+          for (final row in [
+            ['1', '2', '3'],
+            ['4', '5', '6'],
+            ['7', '8', '9'],
+            [decimal ? '.' : '', '0', '⌫'],
+          ])
+            Row(children: [for (final k in row) key(k)]),
         ],
       ),
     );
