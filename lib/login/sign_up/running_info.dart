@@ -99,8 +99,8 @@ class _RunningInfoPageState extends State<RunningInfoPage> {
     controller.dispose();
     if (result == null || !mounted) return;
     final value = (result * 10).round() / 10;
-    // 눈금자 1kg = 3.4px. 스크롤 위치가 바뀌면 리스너가 weight를 갱신합니다.
-    ruler.jumpTo((value * 3.4).clamp(0, ruler.position.maxScrollExtent));
+    // 눈금자 1kg = 34px(0.1kg = 3.4px). 스크롤 위치가 바뀌면 리스너가 weight를 갱신합니다.
+    ruler.jumpTo((value * 34).clamp(0, ruler.position.maxScrollExtent));
     setState(() => weight = value);
   }
 

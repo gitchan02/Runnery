@@ -23,6 +23,11 @@ void main() {
     await tester.tap(find.text('확인'));
     await tester.pumpAndSettle();
     expect(find.textContaining('72.5', findRichText: true), findsOneWidget);
+    // 눈금자도 같은 값으로 옮겨져, 살짝 밀어도 엉뚱한 값으로 튀지 않아야 합니다.
+    final ruler = tester
+        .widget<SingleChildScrollView>(find.byType(SingleChildScrollView).last)
+        .controller!;
+    expect(ruler.offset, closeTo(72.5 * 34, 0.01));
     expect(tester.takeException(), isNull);
   });
 
