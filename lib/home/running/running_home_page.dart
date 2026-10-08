@@ -57,20 +57,23 @@ enum RunningLocationState {
   deniedForever,
 }
 
-/// 러닝용 GPS 설정. 1초 간격, 백그라운드 위치는 쓰지 않습니다.
-LocationSettings runningLocationSettings() => switch (defaultTargetPlatform) {
-  TargetPlatform.iOS => AppleSettings(
-    accuracy: LocationAccuracy.bestForNavigation,
-    activityType: ActivityType.fitness,
-    pauseLocationUpdatesAutomatically: false,
-    allowBackgroundLocationUpdates: false,
-  ),
-  TargetPlatform.android => AndroidSettings(
-    accuracy: LocationAccuracy.best,
-    intervalDuration: const Duration(seconds: 1),
-  ),
-  _ => const LocationSettings(accuracy: LocationAccuracy.best),
-};
+/// 러닝용 GPS 설정. 1초 간격.
+/// [background]가 true면 화면이 꺼지거나 다른 앱으로 가도 위치를 계속 받습니다(러닝 중에만).
+LocationSettings runningLocationSettings({bool background = false}) =>
+    switch (defaultTargetPlatform) {
+      TargetPlatform.iOS => AppleSettings(
+        accuracy: LocationAccuracy.bestForNavigation,
+        activityType: ActivityType.fitness,
+        pauseLocationUpdatesAutomatically: false,
+        allowBackgroundLocationUpdates: background,
+        showBackgroundLocationIndicator: background,
+      ),
+      TargetPlatform.android => AndroidSettings(
+        accuracy: LocationAccuracy.best,
+        intervalDuration: const Duration(seconds: 1),
+      ),
+      _ => const LocationSettings(accuracy: LocationAccuracy.best),
+    };
 
 class _RunningHomePageState extends State<RunningHomePage> {
   /// 위치를 받기 전 지도 중심(서울시청).
