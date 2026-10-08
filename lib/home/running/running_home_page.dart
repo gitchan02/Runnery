@@ -742,7 +742,7 @@ class _StartSheetState extends State<_StartSheet> {
       value: _valueText,
       showPresets: !editing,
       unit: _distance ? '킬로미터' : '시간 : 분',
-      unitShort: _distance ? 'km' : 'h:m',
+      unitShort: _distance ? 'km' : null,
       editing: editing,
       dimmed: editing && _input!.isEmpty,
       tapRegion: _keypadRegion,
@@ -902,8 +902,8 @@ class _GoalPicker extends StatelessWidget {
   final bool showPresets;
   final String unit;
 
-  /// 큰 숫자 바로 옆의 짧은 단위. 예: km, h:m
-  final String unitShort;
+  /// 큰 숫자 바로 옆의 짧은 단위. 예: km. 시간은 아래 '시간 : 분' 라벨만 둡니다.
+  final String? unitShort;
   final bool editing;
 
   /// 입력 중인데 아직 아무것도 누르지 않았을 때 흐리게 보입니다.
@@ -977,15 +977,17 @@ class _GoalPicker extends StatelessWidget {
                                         : AppColors.textPrimary,
                                   ),
                                 ),
-                                const SizedBox(width: 6),
-                                Text(
-                                  unitShort,
-                                  style: const TextStyle(
-                                    fontSize: 20,
-                                    fontWeight: FontWeight.w700,
-                                    color: AppColors.textSecondary,
+                                if (unitShort != null) ...[
+                                  const SizedBox(width: 6),
+                                  Text(
+                                    unitShort!,
+                                    style: const TextStyle(
+                                      fontSize: 20,
+                                      fontWeight: FontWeight.w700,
+                                      color: AppColors.textSecondary,
+                                    ),
                                   ),
-                                ),
+                                ],
                               ],
                             ),
                           ),
