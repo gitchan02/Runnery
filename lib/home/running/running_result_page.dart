@@ -1012,8 +1012,8 @@ class _BigMapButton extends StatelessWidget {
       icon: Icons.open_in_full,
       onTap: () => Navigator.of(context).push(
         PageRouteBuilder<void>(
-          transitionDuration: AppMotion.mapExpand,
-          reverseTransitionDuration: AppMotion.mapExpand,
+          transitionDuration: Duration.zero,
+          reverseTransitionDuration: Duration.zero,
           pageBuilder: (_, _, _) =>
               _FullMapPage(record: record, places: places),
           transitionsBuilder: (_, animation, _, child) => FadeTransition(

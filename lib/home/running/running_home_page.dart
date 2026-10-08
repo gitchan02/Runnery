@@ -213,10 +213,11 @@ class _RunningHomePageState extends State<RunningHomePage> {
     _positionSub = null;
     if (!mounted) return;
 
-    // 카운트다운→러닝: Smart Animate 400ms, ease-out.
+    // 카운트다운→러닝: 애니메이션 없이 바로 전환.
     await Navigator.of(context).push(
       PageRouteBuilder<void>(
-        transitionDuration: AppMotion.runningTransition,
+        transitionDuration: Duration.zero,
+        reverseTransitionDuration: Duration.zero,
         pageBuilder: (_, _, _) => RunningStartPage(
           options: options,
           initialCenter: _position == null

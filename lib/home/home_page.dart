@@ -129,11 +129,11 @@ class _HomePageV2State extends State<HomePageV2> with WidgetsBindingObserver {
         MaterialPageRoute(builder: (_) => const RecordListPageV2()),
       );
     } else if (label == '러닝') {
-      // 홈→러닝 시작: 아래에서 올라오기 300ms.
+      // 홈→러닝 시작: 애니메이션 없이 바로 전환.
       Navigator.of(context).push<void>(
         PageRouteBuilder(
-          transitionDuration: AppMotion.startSheet,
-          reverseTransitionDuration: AppMotion.startSheet,
+          transitionDuration: Duration.zero,
+          reverseTransitionDuration: Duration.zero,
           pageBuilder: (_, _, _) => const RunningHomePage(),
           transitionsBuilder: (_, animation, _, child) => SlideTransition(
             position: Tween(begin: const Offset(0, 1), end: Offset.zero)

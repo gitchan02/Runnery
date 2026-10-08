@@ -1372,11 +1372,11 @@ double runningHeroSize(BuildContext context) {
   return AppTextStyles.baseRunningNumberSize;
 }
 
-/// 오른쪽에서 밀려 들어오는 푸시 전환. cubic-bezier(0.2,0,0,1).
+/// 애니메이션 없이 바로 전환하는 푸시. duration은 받지만 사용하지 않습니다.
 Route<T> runningPushRoute<T>(Widget page, Duration duration) =>
     PageRouteBuilder<T>(
-      transitionDuration: duration,
-      reverseTransitionDuration: duration,
+      transitionDuration: Duration.zero,
+      reverseTransitionDuration: Duration.zero,
       pageBuilder: (_, _, _) => page,
       transitionsBuilder: (_, animation, _, child) => SlideTransition(
         position: Tween(begin: const Offset(1, 0), end: Offset.zero).animate(

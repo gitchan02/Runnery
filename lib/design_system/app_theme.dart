@@ -10,6 +10,17 @@ import 'app_text_styles.dart';
 /// 버튼 종류별 색·높이·모서리는 달라서 전역 버튼 테마를 임의로 만들지 않습니다.
 abstract final class AppTheme {
   static final dark = ThemeData(
+    // 화면 전환 애니메이션 없이 바로 넘어갑니다. 모든 플랫폼 공통.
+    pageTransitionsTheme: const PageTransitionsTheme(
+      builders: {
+        TargetPlatform.android: _NoTransitionsBuilder(),
+        TargetPlatform.iOS: _NoTransitionsBuilder(),
+        TargetPlatform.fuchsia: _NoTransitionsBuilder(),
+        TargetPlatform.linux: _NoTransitionsBuilder(),
+        TargetPlatform.macOS: _NoTransitionsBuilder(),
+        TargetPlatform.windows: _NoTransitionsBuilder(),
+      },
+    ),
     brightness: Brightness.dark,
     primaryColor: AppColors.primary,
     scaffoldBackgroundColor: AppColors.background,
@@ -25,4 +36,18 @@ abstract final class AppTheme {
       thickness: AppComponentMetrics.dividerWidth,
     ),
   );
+}
+
+/// 화면을 효과 없이 그대로 보여 주는 전환.
+class _NoTransitionsBuilder extends PageTransitionsBuilder {
+  const _NoTransitionsBuilder();
+
+  @override
+  Widget buildTransitions<T>(
+    PageRoute<T> route,
+    BuildContext context,
+    Animation<double> animation,
+    Animation<double> secondaryAnimation,
+    Widget child,
+  ) => child;
 }
