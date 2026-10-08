@@ -618,7 +618,9 @@ class _RunningRoutesMapState extends State<_RunningRoutesMap> {
       );
     }
     final fit = _fitPoints(segments);
-    if (!RecordRouteMap.basemapEnabled) {
+    // 프로필 수정·설정 화면이 덮으면 지도 엔진을 내려 잔상이 남지 않게 합니다(RecordRouteMap과 같은 이유).
+    final covered = !(ModalRoute.isCurrentOf(context) ?? true);
+    if (!RecordRouteMap.basemapEnabled || covered) {
       return CustomPaint(painter: _RoutesPainter(segments, fit));
     }
     // 기록이 바뀌면 지도를 새로 만들어 다시 맞춥니다(fitPoints는 처음 한 번만 적용).

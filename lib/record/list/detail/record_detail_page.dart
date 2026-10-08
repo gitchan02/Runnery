@@ -272,18 +272,23 @@ class RecordRouteMap extends StatelessWidget {
   static bool basemapEnabled = false;
 
   @override
-  Widget build(BuildContext context) => Semantics(
-    label: '저장된 GPS 경로 미리보기',
-    child: ClipRRect(
-      borderRadius: BorderRadius.circular(borderRadius),
-      child: basemap && basemapEnabled && record.route.isNotEmpty
-          ? _RecordBasemap(route: record.route, interactive: interactive)
-          : CustomPaint(
-              painter: _RecordMapPainter(record.route, detailed),
-              size: Size.infinite,
-            ),
-    ),
-  );
+  Widget build(BuildContext context) {
+    // 다른 화면이 위에 덮이면 지도 엔진을 내립니다. 지도는 iOS가 따로 그려서,
+    // 화면 전환 효과 없이 덮이면 아래 화면의 지도가 새 화면 위에 잔상으로 남을 수 있습니다.
+    final covered = !(ModalRoute.isCurrentOf(context) ?? true);
+    return Semantics(
+      label: '저장된 GPS 경로 미리보기',
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(borderRadius),
+        child: basemap && basemapEnabled && !covered && record.route.isNotEmpty
+            ? _RecordBasemap(route: record.route, interactive: interactive)
+            : CustomPaint(
+                painter: _RecordMapPainter(record.route, detailed),
+                size: Size.infinite,
+              ),
+      ),
+    );
+  }
 }
 
 class _RecordBasemap extends StatefulWidget {
