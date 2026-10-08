@@ -17,6 +17,7 @@ import '../../design_system/app_radius.dart';
 import '../../design_system/app_spacing.dart';
 import '../../design_system/app_text_styles.dart';
 import 'running_home_page.dart';
+import 'running_live_activity.dart';
 import 'running_result_page.dart';
 import '../../record/data/record_from_session.dart';
 import '../../record/data/running_record_store.dart';
@@ -643,6 +644,7 @@ class _RunningStartPageState extends State<RunningStartPage> {
   bool _collapsed = false;
   bool _ending = false;
   bool _goalReached = false;
+  final _liveActivity = RunningLiveActivity();
   Position? _followedPosition;
 
   @override
@@ -653,12 +655,15 @@ class _RunningStartPageState extends State<RunningStartPage> {
     _session
       ..addListener(_followCamera)
       ..addListener(_checkGoal)
+      ..addListener(_updateLiveActivity)
       ..start();
+    _liveActivity.start(_liveActivityState());
   }
 
   @override
   void dispose() {
     WakelockPlus.disable();
+    _liveActivity.end();
     _session.dispose();
     _map.dispose();
     super.dispose();
@@ -670,6 +675,20 @@ class _RunningStartPageState extends State<RunningStartPage> {
     _followedPosition = p;
     if (_followUser) _map.moveTo(LatLng(p.latitude, p.longitude));
   }
+
+  /// 다이내믹 아일랜드에 보낼 값. 거리는 화면처럼 0.01 km 단위로 맞춥니다.
+  Map<String, Object?> _liveActivityState() => {
+    'distanceKm': double.parse(RunningFormat.km(_session.distanceMeters)),
+    'pace': RunningFormat.livePace(_session.paceSecondsPerKm),
+    'paused': _session.status == RunningStatus.paused,
+    'goal': widget.options.goalStatus(
+      _session.distanceMeters,
+      _session.elapsed,
+    ),
+    'elapsedSeconds': _session.elapsed.inSeconds,
+  };
+
+  void _updateLiveActivity() => _liveActivity.update(_liveActivityState());
 
   /// 목표를 처음 채운 순간 한 번만 진동과 안내를 띄웁니다. 러닝은 계속 이어집니다.
   void _checkGoal() {
