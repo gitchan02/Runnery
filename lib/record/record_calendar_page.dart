@@ -144,19 +144,17 @@ class _RecordCalendarPageState extends State<RecordCalendarPage> {
                         color: today ? Colors.white : Colors.transparent,
                       ),
                       const SizedBox(height: 5),
+                      // 그날 여러 번 달렸다면 가장 긴 거리의 경로만 그립니다.
                       if (entries.isNotEmpty)
                         SizedBox(
                           width: 30,
                           height: 18,
-                          child: Stack(
-                            children: [
-                              for (final entry in entries)
-                                Positioned.fill(
-                                  child: MiniRunningRoute(
-                                    coordinates: entry.route,
-                                  ),
-                                ),
-                            ],
+                          child: MiniRunningRoute(
+                            coordinates: entries
+                                .reduce(
+                                  (a, b) => b.distanceKm > a.distanceKm ? b : a,
+                                )
+                                .route,
                           ),
                         ),
                     ],
