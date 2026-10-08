@@ -17,12 +17,16 @@ class RecordListPageV2 extends StatefulWidget {
     this.initialCalendar = false,
     this.onHome,
     this.onProfile,
+    this.showNavigation = true,
   });
   final List<RunningRecord>? records;
   final RunningRecordStore? store;
   final DateTime? initialMonth;
   final bool initialCalendar;
   final VoidCallback? onHome, onProfile;
+
+  /// 하단 탭을 이 화면이 직접 그릴지. 탭 묶음(MainTabs) 안에서는 false.
+  final bool showNavigation;
   @override
   State<RecordListPageV2> createState() => _RecordListPageV2State();
 }
@@ -127,7 +131,7 @@ class _RecordListPageV2State extends State<RecordListPageV2> {
     ),
     child: Scaffold(
       backgroundColor: recordBackground,
-      bottomNavigationBar: _navigation(),
+      bottomNavigationBar: widget.showNavigation ? _navigation() : null,
       body: SafeArea(
         bottom: false,
         child: Align(

@@ -26,7 +26,11 @@ class HomePageV2 extends StatefulWidget {
     this.records,
     this.now,
     this.liveMap,
+    this.showNavigation = true,
   });
+
+  /// 하단 탭을 이 화면이 직접 그릴지. 탭 묶음(MainTabs) 안에서는 false.
+  final bool showNavigation;
 
   /// 카드에 현재 GPS 위치 지도를 쓸지. 기본값은 records가 없을 때(실제 앱)만 true.
   final bool? liveMap;
@@ -166,7 +170,7 @@ class _HomePageV2State extends State<HomePageV2> with WidgetsBindingObserver {
       ),
       child: Scaffold(
         backgroundColor: AppColors.background,
-        bottomNavigationBar: _navigation(),
+        bottomNavigationBar: widget.showNavigation ? _navigation() : null,
         body: SafeArea(
           bottom: false,
           child: Center(

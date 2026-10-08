@@ -26,7 +26,11 @@ class ProfileMailPage extends StatefulWidget {
     this.onLogout,
     this.account,
     this.records,
+    this.showNavigation = true,
   });
+
+  /// 하단 탭을 이 화면이 직접 그릴지. 탭 묶음(MainTabs) 안에서는 false.
+  final bool showNavigation;
 
   /// 기본값은 AccountStore.instance / RunningRecordStore.instance.
   final AccountStore? account;
@@ -90,40 +94,44 @@ class _ProfileMailPageState extends State<ProfileMailPage> {
   @override
   Widget build(BuildContext context) => Scaffold(
     backgroundColor: AppColors.background,
-    bottomNavigationBar: Container(
-      decoration: const BoxDecoration(
-        border: Border(top: BorderSide(color: AppColors.divider)),
-      ),
-      child: SafeArea(
-        top: false,
-        child: SizedBox(
-          height: 64,
-          child: Row(
-            children: [
-              _tab('홈', Icons.home_outlined, false, () {
-                if (widget.onHome != null) {
-                  widget.onHome!();
-                } else {
-                  Navigator.of(context).pushReplacement<void, void>(
-                    MaterialPageRoute(builder: (_) => const HomePageV2()),
-                  );
-                }
-              }),
-              _tab('기록', Icons.format_align_left, false, () {
-                if (widget.onRecords != null) {
-                  widget.onRecords!();
-                } else {
-                  Navigator.of(context).pushReplacement<void, void>(
-                    MaterialPageRoute(builder: (_) => const RecordListPageV2()),
-                  );
-                }
-              }),
-              _tab('내 정보', Icons.person_outline, true, () {}),
-            ],
+    bottomNavigationBar: !widget.showNavigation
+        ? null
+        : Container(
+            decoration: const BoxDecoration(
+              border: Border(top: BorderSide(color: AppColors.divider)),
+            ),
+            child: SafeArea(
+              top: false,
+              child: SizedBox(
+                height: 64,
+                child: Row(
+                  children: [
+                    _tab('홈', Icons.home_outlined, false, () {
+                      if (widget.onHome != null) {
+                        widget.onHome!();
+                      } else {
+                        Navigator.of(context).pushReplacement<void, void>(
+                          MaterialPageRoute(builder: (_) => const HomePageV2()),
+                        );
+                      }
+                    }),
+                    _tab('기록', Icons.format_align_left, false, () {
+                      if (widget.onRecords != null) {
+                        widget.onRecords!();
+                      } else {
+                        Navigator.of(context).pushReplacement<void, void>(
+                          MaterialPageRoute(
+                            builder: (_) => const RecordListPageV2(),
+                          ),
+                        );
+                      }
+                    }),
+                    _tab('내 정보', Icons.person_outline, true, () {}),
+                  ],
+                ),
+              ),
+            ),
           ),
-        ),
-      ),
-    ),
     body: SafeArea(
       bottom: false,
       child: Center(

@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../account/account_store.dart';
 import '../design_system/app_colors.dart';
-import '../home/home_page.dart';
+import '../home/main_tabs.dart';
 import 'auth_ui/auth_ui.dart';
 import 'sign_up/basic_info.dart';
 
@@ -33,7 +33,7 @@ class _LoginPageV2State extends State<LoginPageV2> {
   void message(String text) =>
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
   void _openHome() => Navigator.of(context).pushReplacement<void, void>(
-    MaterialPageRoute(builder: (_) => const HomePageV2()),
+    MaterialPageRoute(builder: (_) => const MainTabs()),
   );
 
   Future<void> login() async {
@@ -239,9 +239,7 @@ class _AuthGateState extends State<AuthGate> {
       if (snapshot.connectionState != ConnectionState.done) {
         return const Scaffold(backgroundColor: AppColors.background);
       }
-      return _store.isLoggedIn
-          ? const HomePageV2()
-          : LoginPageV2(store: _store);
+      return _store.isLoggedIn ? const MainTabs() : LoginPageV2(store: _store);
     },
   );
 }

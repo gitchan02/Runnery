@@ -9,5 +9,6 @@ class ProfileMainPage extends ProfileMailPage {
     super.onRecords,
     super.onEditProfile,
     super.onLogout,
+    super.showNavigation,
   });
 }
