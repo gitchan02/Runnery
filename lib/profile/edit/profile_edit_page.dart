@@ -221,7 +221,7 @@ class _ProfileEditPageState extends State<ProfileEditPage> {
     });
   }
 
-  /// 15-5 저장하지 않고 나가려 할 때.
+  /// 15-5 바뀐 내용을 보여 주고 저장할지 묻습니다. 저장 버튼과 뒤로 가기 모두 이 창을 띄웁니다.
   Future<void> _confirmLeave() async {
     final action = await showModalBottomSheet<_LeaveAction>(
       context: context,
@@ -363,7 +363,7 @@ class _ProfileEditPageState extends State<ProfileEditPage> {
           child: SizedBox(
             height: 52,
             child: FilledButton(
-              onPressed: canSave ? _saveAndClose : null,
+              onPressed: canSave ? _confirmLeave : null,
               style: FilledButton.styleFrom(
                 backgroundColor: Colors.white,
                 foregroundColor: Colors.black,

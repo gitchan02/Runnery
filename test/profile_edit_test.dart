@@ -110,6 +110,14 @@ void main() {
     expect(find.text('사용할 수 있는 아이디예요'), findsOneWidget);
     expect(saveButton(tester).onPressed, isNotNull);
 
+    // 저장을 누르면 바로 저장하지 않고 바뀐 내용을 확인하는 창을 띄웁니다.
+    await tester.tap(find.widgetWithText(FilledButton, '저장'));
+    await tester.pumpAndSettle();
+    expect(find.text('바뀐 내용을 저장할까요?'), findsOneWidget);
+    await tester.tap(find.text('계속 수정하기'));
+    await tester.pumpAndSettle();
+    expect(find.text('바뀐 내용을 저장할까요?'), findsNothing);
+
     await tester.enterText(
       find.widgetWithText(TextField, 'minji@example.com'),
       'minji.kim@example',
