@@ -33,11 +33,61 @@ class RunningStartOptions {
     required this.mode,
     required this.voiceGuide,
     required this.autoPause,
+    this.goalKm = RunningGoal.defaultKm,
+    this.goalMinutes = RunningGoal.defaultMinutes,
   });
 
   final RunningMode mode;
   final bool voiceGuide;
   final bool autoPause;
+
+  /// 거리 목표(km). [RunningMode.distanceGoal]일 때만 씁니다.
+  final double goalKm;
+
+  /// 시간 목표(분). [RunningMode.timeGoal]일 때만 씁니다.
+  final int goalMinutes;
+
+  /// 목표 진행률. 1 이상이면 달성. 자유 러닝이면 null.
+  double? goalProgress(double meters, Duration elapsed) => switch (mode) {
+    RunningMode.free => null,
+    RunningMode.distanceGoal => meters / 1000 / goalKm,
+    RunningMode.timeGoal => elapsed.inSeconds / (goalMinutes * 60),
+  };
+
+  /// 러닝 카드의 목표 문구. 예: 5 km 목표 · 1.79 km 남음
+  String? goalStatus(double meters, Duration elapsed) {
+    final progress = goalProgress(meters, elapsed);
+    if (progress == null) return null;
+    final goal = mode == RunningMode.distanceGoal
+        ? RunningGoal.km(goalKm)
+        : RunningGoal.minutes(goalMinutes);
+    if (progress >= 1) return '$goal 목표 달성!';
+    final rest = mode == RunningMode.distanceGoal
+        ? '${RunningFormat.km(goalKm * 1000 - meters)} km'
+        : RunningFormat.clock(Duration(minutes: goalMinutes) - elapsed);
+    return '$goal 목표 · $rest 남음';
+  }
+}
+
+/// 목표 값의 기본·추천·범위.
+abstract final class RunningGoal {
+  static const defaultKm = 5.0;
+  static const defaultMinutes = 30;
+  static const kmPresets = [3.0, 5.0, 10.0, 21.1];
+  static const minutePresets = [20, 30, 45, 60];
+  static const kmStep = 0.5, minKm = 0.5, maxKm = 100.0;
+  static const minuteStep = 5, minMinutes = 5, maxMinutes = 300;
+
+  /// 5 km, 21.1 km
+  static String km(double km) =>
+      '${km == km.roundToDouble() ? km.toInt() : km} km';
+
+  /// 30분, 1시간 30분
+  static String minutes(int minutes) {
+    final h = minutes ~/ 60, m = minutes % 60;
+    if (h == 0) return '$m분';
+    return m == 0 ? '$h시간' : '$h시간 $m분';
+  }
 }
 
 /// 05 러닝 시작 + 05-1 카운트다운.
@@ -92,6 +142,8 @@ class _RunningHomePageState extends State<RunningHomePage> {
   bool _geocoding = false;
 
   RunningMode _mode = RunningMode.free;
+  double _goalKm = RunningGoal.defaultKm;
+  int _goalMinutes = RunningGoal.defaultMinutes;
   bool _voiceGuide = true;
   bool _autoPause = true;
   bool _countingDown = false;
@@ -207,6 +259,8 @@ class _RunningHomePageState extends State<RunningHomePage> {
       mode: _mode,
       voiceGuide: _voiceGuide,
       autoPause: _autoPause,
+      goalKm: _goalKm,
+      goalMinutes: _goalMinutes,
     );
     // 러닝 화면이 자체 GPS 스트림을 쓰므로 미리보기 스트림은 잠시 끕니다.
     await _positionSub?.cancel();
@@ -393,6 +447,11 @@ class _RunningHomePageState extends State<RunningHomePage> {
                 const SizedBox(height: AppSpacing.mapControlAboveCard),
                 _StartSheet(
                   mode: _mode,
+                  goalKm: _goalKm,
+                  goalMinutes: _goalMinutes,
+                  onGoalKmChanged: (km) => setState(() => _goalKm = km),
+                  onGoalMinutesChanged: (minutes) =>
+                      setState(() => _goalMinutes = minutes),
                   voiceGuide: _voiceGuide,
                   autoPause: _autoPause,
                   // 권한은 있는데 첫 위치를 아직 못 받았을 때만 비활성.
@@ -504,6 +563,10 @@ class _ScaleBarPainter extends CustomPainter {
 class _StartSheet extends StatelessWidget {
   const _StartSheet({
     required this.mode,
+    required this.goalKm,
+    required this.goalMinutes,
+    required this.onGoalKmChanged,
+    required this.onGoalMinutesChanged,
     required this.voiceGuide,
     required this.autoPause,
     required this.canStart,
@@ -514,6 +577,10 @@ class _StartSheet extends StatelessWidget {
   });
 
   final RunningMode mode;
+  final double goalKm;
+  final int goalMinutes;
+  final ValueChanged<double> onGoalKmChanged;
+  final ValueChanged<int> onGoalMinutesChanged;
   final bool voiceGuide;
   final bool autoPause;
   final bool canStart;
@@ -553,6 +620,49 @@ class _StartSheet extends StatelessWidget {
           ),
           const SizedBox(height: AppSpacing.space4),
           _ModeSegment(selected: mode, onChanged: onModeChanged),
+          if (mode == RunningMode.distanceGoal)
+            _GoalPicker(
+              label: RunningGoal.km(goalKm),
+              presets: [
+                for (final km in RunningGoal.kmPresets)
+                  (RunningGoal.km(km), km == goalKm, () => onGoalKmChanged(km)),
+              ],
+              onMinus: goalKm > RunningGoal.minKm
+                  ? () => onGoalKmChanged(
+                      ((goalKm / RunningGoal.kmStep).ceil() - 1) *
+                          RunningGoal.kmStep,
+                    )
+                  : null,
+              // 21.1처럼 단위에 맞지 않는 값에서도 0.5 km 칸에 맞춰 내리고 올립니다.
+              onPlus: goalKm < RunningGoal.maxKm
+                  ? () => onGoalKmChanged(
+                      ((goalKm / RunningGoal.kmStep).floor() + 1) *
+                          RunningGoal.kmStep,
+                    )
+                  : null,
+            ),
+          if (mode == RunningMode.timeGoal)
+            _GoalPicker(
+              label: RunningGoal.minutes(goalMinutes),
+              presets: [
+                for (final m in RunningGoal.minutePresets)
+                  (
+                    RunningGoal.minutes(m),
+                    m == goalMinutes,
+                    () => onGoalMinutesChanged(m),
+                  ),
+              ],
+              onMinus: goalMinutes > RunningGoal.minMinutes
+                  ? () => onGoalMinutesChanged(
+                      goalMinutes - RunningGoal.minuteStep,
+                    )
+                  : null,
+              onPlus: goalMinutes < RunningGoal.maxMinutes
+                  ? () => onGoalMinutesChanged(
+                      goalMinutes + RunningGoal.minuteStep,
+                    )
+                  : null,
+            ),
           const SizedBox(height: AppSpacing.space3),
           Text(
             _description,
@@ -587,6 +697,110 @@ class _StartSheet extends StatelessWidget {
             label: '시작하기',
             icon: Icons.play_arrow_rounded,
             onPressed: canStart ? onStart : null,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// 거리·시간 목표 값 고르기: − 값 + 와 자주 쓰는 값 버튼.
+class _GoalPicker extends StatelessWidget {
+  const _GoalPicker({
+    required this.label,
+    required this.presets,
+    required this.onMinus,
+    required this.onPlus,
+  });
+
+  final String label;
+
+  /// (문구, 선택됨, 눌렀을 때)
+  final List<(String, bool, VoidCallback)> presets;
+  final VoidCallback? onMinus;
+  final VoidCallback? onPlus;
+
+  @override
+  Widget build(BuildContext context) {
+    Widget step(IconData icon, String tooltip, VoidCallback? onPressed) =>
+        IconButton(
+          tooltip: tooltip,
+          onPressed: onPressed == null
+              ? null
+              : () {
+                  HapticFeedback.selectionClick();
+                  onPressed();
+                },
+          icon: Icon(icon),
+          color: AppColors.textPrimary,
+          disabledColor: AppColors.textTertiary,
+          style: IconButton.styleFrom(
+            side: const BorderSide(color: AppColors.borderDefault),
+          ),
+        );
+
+    return Padding(
+      padding: const EdgeInsets.only(top: AppSpacing.space4),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              step(Icons.remove, '목표 줄이기', onMinus),
+              Expanded(
+                child: Text(
+                  label,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    fontSize: 28,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.textPrimary,
+                  ),
+                ),
+              ),
+              step(Icons.add, '목표 늘리기', onPlus),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.space3),
+          Row(
+            children: [
+              for (final (i, (text, selected, onTap)) in presets.indexed) ...[
+                if (i > 0) const SizedBox(width: AppSpacing.space2),
+                Expanded(
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: onTap,
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 150),
+                      height: 34,
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        color: selected
+                            ? AppColors.textPrimary
+                            : Colors.transparent,
+                        borderRadius: AppRadius.pillBorder,
+                        border: Border.all(
+                          color: selected
+                              ? AppColors.textPrimary
+                              : AppColors.borderDefault,
+                        ),
+                      ),
+                      child: Text(
+                        text,
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: selected
+                              ? FontWeight.w700
+                              : FontWeight.w500,
+                          color: selected
+                              ? Colors.black
+                              : AppColors.textSecondary,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ],
           ),
         ],
       ),

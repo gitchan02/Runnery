@@ -642,6 +642,7 @@ class _RunningStartPageState extends State<RunningStartPage> {
   bool _showMapLabels = true;
   bool _collapsed = false;
   bool _ending = false;
+  bool _goalReached = false;
   Position? _followedPosition;
 
   @override
@@ -651,6 +652,7 @@ class _RunningStartPageState extends State<RunningStartPage> {
     WakelockPlus.enable();
     _session
       ..addListener(_followCamera)
+      ..addListener(_checkGoal)
       ..start();
   }
 
@@ -667,6 +669,24 @@ class _RunningStartPageState extends State<RunningStartPage> {
     if (p == null || identical(p, _followedPosition)) return;
     _followedPosition = p;
     if (_followUser) _map.moveTo(LatLng(p.latitude, p.longitude));
+  }
+
+  /// 목표를 처음 채운 순간 한 번만 진동과 안내를 띄웁니다. 러닝은 계속 이어집니다.
+  void _checkGoal() {
+    if (_goalReached) return;
+    final progress = widget.options.goalProgress(
+      _session.distanceMeters,
+      _session.elapsed,
+    );
+    if (progress == null || progress < 1) return;
+    _goalReached = true;
+    HapticFeedback.heavyImpact();
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        behavior: SnackBarBehavior.floating,
+        content: Text('목표 달성! 계속 달려도 돼요.'),
+      ),
+    );
   }
 
   void _recenter() {
@@ -948,7 +968,7 @@ class _RunningStartPageState extends State<RunningStartPage> {
       content = _RunningCard(
         key: const ValueKey('running'),
         session: _session,
-        voiceGuide: widget.options.voiceGuide,
+        options: widget.options,
         onPause: _pause,
         onEnd: _openEndSheet,
       );
@@ -1000,13 +1020,13 @@ class _RunningCard extends StatelessWidget {
   const _RunningCard({
     super.key,
     required this.session,
-    required this.voiceGuide,
+    required this.options,
     required this.onPause,
     required this.onEnd,
   });
 
   final RunningSession session;
-  final bool voiceGuide;
+  final RunningStartOptions options;
   final VoidCallback onPause;
   final VoidCallback onEnd;
 
@@ -1021,7 +1041,7 @@ class _RunningCard extends StatelessWidget {
             children: [
               const Text('거리', style: _labelStyle),
               const Spacer(),
-              if (voiceGuide)
+              if (options.voiceGuide && options.mode == RunningMode.free)
                 const Text(
                   '1 km마다 음성 안내',
                   style: TextStyle(fontSize: 12, color: AppColors.textTertiary),
@@ -1034,6 +1054,27 @@ class _RunningCard extends StatelessWidget {
             unit: 'km',
             size: runningHeroSize(context),
           ),
+          if (options.goalProgress(session.distanceMeters, session.elapsed)
+              case final progress?) ...[
+            const SizedBox(height: AppSpacing.space3),
+            ClipRRect(
+              borderRadius: AppRadius.pillBorder,
+              child: LinearProgressIndicator(
+                value: progress.clamp(0.0, 1.0),
+                minHeight: 6,
+                color: AppColors.textPrimary,
+                backgroundColor: AppColors.divider,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              options.goalStatus(session.distanceMeters, session.elapsed)!,
+              style: const TextStyle(
+                fontSize: 12,
+                color: AppColors.textSecondary,
+              ),
+            ),
+          ],
           const SizedBox(height: AppSpacing.space4),
           const Divider(height: 1),
           const SizedBox(height: AppSpacing.space3),
