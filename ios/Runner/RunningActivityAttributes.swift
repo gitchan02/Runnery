@@ -14,5 +14,7 @@ struct RunningActivityAttributes: ActivityAttributes {
     var paused: Bool
     /// 목표 문구. 자유 러닝이면 nil.
     var goal: String?
+    /// 다이내믹 아일랜드 작은 칸에 거리 대신 달리는 시간을 보일지.
+    var showTime: Bool
   }
 }

@@ -686,6 +686,8 @@ class _RunningStartPageState extends State<RunningStartPage> {
       _session.elapsed,
     ),
     'elapsedSeconds': _session.elapsed.inSeconds,
+    // 다이내믹 아일랜드 작은 칸: 거리 목표만 km, 자유·시간 목표는 달리는 시간을 보여 줍니다.
+    'showTime': widget.options.mode != RunningMode.distanceGoal,
   };
 
   void _updateLiveActivity() => _liveActivity.update(_liveActivityState());

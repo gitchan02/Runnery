@@ -29,7 +29,8 @@ enum RunningLiveActivityChannel {
       elapsedSeconds: elapsed,
       timerStart: Date().addingTimeInterval(-Double(elapsed)),
       paused: args["paused"] as? Bool ?? false,
-      goal: args["goal"] as? String
+      goal: args["goal"] as? String,
+      showTime: args["showTime"] as? Bool ?? false
     )
   }
 

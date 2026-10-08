@@ -50,9 +50,18 @@ struct RunningLiveActivity: Widget {
         Image(systemName: state.paused ? "pause.fill" : "figure.run")
           .foregroundStyle(Self.orange)
       } compactTrailing: {
-        Text(String(format: "%.2fkm", state.distanceKm))
-          .font(.caption.monospacedDigit())
-          .foregroundStyle(.white)
+        if state.showTime {
+          ElapsedText(state: state)
+            .font(.caption.monospacedDigit())
+            .foregroundStyle(.white)
+            .lineLimit(1)
+            .minimumScaleFactor(0.7)
+            .frame(maxWidth: 56)
+        } else {
+          Text(String(format: "%.2fkm", state.distanceKm))
+            .font(.caption.monospacedDigit())
+            .foregroundStyle(.white)
+        }
       } minimal: {
         Image(systemName: "figure.run").foregroundStyle(Self.orange)
       }
