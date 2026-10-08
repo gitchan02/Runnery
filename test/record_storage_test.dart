@@ -149,6 +149,24 @@ void main() {
     ]);
   });
 
+  test('GPS jitter while walking is not counted as running calories', () {
+    final start = DateTime(2026, 10, 1, 8);
+    var meters = 0.0;
+    // 1초마다 0.3m·2.7m를 번갈아 가는 걷기(평균 분속 90m). 쌍마다 보면 분속 162m로 달리기처럼 튑니다.
+    final points = [
+      for (var i = 0; i <= 120; i++)
+        gps.TrackPoint(
+          latLng: const LatLng(37.5, 127),
+          time: start.add(Duration(seconds: i)),
+          moving: Duration(seconds: i),
+          meters: meters += i == 0 ? 0 : (i.isOdd ? .3 : 2.7),
+          accuracy: 5,
+        ),
+    ];
+    final kcal = gps.RunningCalc.activeCalories([points], 65);
+    expect(kcal, closeTo(.1 * points.last.meters * 65 / 1000 * 5, .01));
+  });
+
   test('missing speed data does not become an invented maximum', () {
     final r = record('no-speed', DateTime(2026));
     expect(r.toJson()['maxSpeedKmh'], isNull);
