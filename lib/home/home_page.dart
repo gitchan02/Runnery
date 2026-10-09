@@ -236,11 +236,21 @@ class _HomePageV2State extends State<HomePageV2> with WidgetsBindingObserver {
                             child: Divider(color: AppColors.borderDefault),
                           ),
                           const SizedBox(width: 12),
-                          Text(
-                            _dateLabel(_now),
-                            style: const TextStyle(
-                              fontSize: 12,
-                              color: AppColors.textTertiary,
+                          // '12월 31일 수요일'처럼 날짜가 길어도 넘치지 않게, 화면 폭의 40%를 넘으면 글자를 줄입니다.
+                          ConstrainedBox(
+                            constraints: BoxConstraints(
+                              maxWidth: MediaQuery.sizeOf(context).width * .4,
+                            ),
+                            child: FittedBox(
+                              fit: BoxFit.scaleDown,
+                              child: Text(
+                                _dateLabel(_now),
+                                maxLines: 1,
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  color: AppColors.textTertiary,
+                                ),
+                              ),
                             ),
                           ),
                         ],
