@@ -19,7 +19,7 @@ enum RouteSnapshotChannel {
         let starts = args["starts"] as? [Bool],
         let size = args["size"] as? Double,
         let output = args["output"] as? String,
-        lats.count == lngs.count, lats.count == starts.count, lats.count >= 2
+        lats.count == lngs.count, lats.count == starts.count, !lats.isEmpty
       else { return result(FlutterMethodNotImplemented) }
       snapshot(
         style: style,
@@ -48,6 +48,9 @@ enum RouteSnapshotChannel {
     let options = MLNMapSnapshotOptions(styleURL: styleURL, camera: MLNMapCamera(), size: size)
     options.coordinateBounds = bounds(of: points)
     options.scale = UIScreen.main.scale
+    // 88pt 칸에서는 출처 문구가 사진을 회색 띠로 덮습니다. 출처는 앱의 실제 지도 화면에 표시합니다.
+    options.showsLogo = false
+    options.showsAttribution = false
     let snapshotter = MLNMapSnapshotter(options: options)
     running.insert(snapshotter)
     snapshotter.start { snapshot, _ in

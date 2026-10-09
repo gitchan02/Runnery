@@ -33,7 +33,8 @@ class RouteThumbnails {
 
   /// 저장된 사진이 있으면 바로, 없으면 만들어서 돌려줍니다. 만들 수 없으면 null.
   Future<File?> get(RunningRecord record) async {
-    if (!_supported || record.route.length < 2) return null;
+    // 위치가 하나라도 있으면 그 주변 지도를 보여 줍니다(위치가 없는 기록은 경로 그림 칸).
+    if (!_supported || record.route.isEmpty) return null;
     final file = await _store.thumbnailFile(record.id);
     if (await file.exists()) return file;
     if (_failed.contains(record.id)) return null;
