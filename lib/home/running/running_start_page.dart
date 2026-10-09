@@ -267,7 +267,11 @@ class RunningRecord {
     required this.weightKg,
     required this.segments,
     required this.pausePoints,
+    this.diagnostics,
   });
+
+  /// 진단 기록([RunningDiagnostics.toJson]). 저장 파일에 그대로 들어갑니다.
+  final Map<String, Object?>? diagnostics;
 
   final DateTime startedAt;
   final DateTime endedAt;
@@ -423,6 +427,84 @@ class RunningRecord {
 
 enum RunningStatus { idle, running, paused, finished }
 
+/// 경로가 빠지거나 거리가 안 늘 때 원인을 가리기 위한 진단 기록. 화면에는 보이지 않고 기록 파일에만 저장됩니다.
+class RunningDiagnostics {
+  /// 위치가 이보다 오래 안 들어오면 '공백'으로 남깁니다.
+  static const gap = Duration(seconds: 15);
+
+  /// 파일이 너무 커지지 않도록 사건은 이만큼만 남깁니다.
+  static const maxEvents = 300;
+
+  int received = 0;
+  int droppedAccuracy = 0;
+  int droppedStale = 0;
+  int droppedOutlier = 0;
+  int recoveries = 0;
+  double? worstAccuracy;
+  final events = <Map<String, Object?>>[];
+
+  /// 정확도로 연달아 버리는 중일 때 그 시작 시각과 버린 수.
+  DateTime? _accuracyLostAt;
+  int _accuracyStreak = 0;
+  double _accuracyStreakWorst = 0;
+  DateTime? _lastReceivedAt;
+
+  void event(String type, [Map<String, Object?> extra = const {}]) {
+    if (events.length >= maxEvents) return;
+    events.add({
+      'type': type,
+      'at': DateTime.now().toIso8601String(),
+      ...extra,
+    });
+  }
+
+  void positionReceived() {
+    received++;
+    final now = DateTime.now();
+    final last = _lastReceivedAt;
+    if (last != null && now.difference(last) > gap) {
+      event('gap', {'seconds': now.difference(last).inSeconds});
+    }
+    _lastReceivedAt = now;
+  }
+
+  void accuracyDropped(double accuracy) {
+    droppedAccuracy++;
+    if (worstAccuracy == null || accuracy > worstAccuracy!) {
+      worstAccuracy = accuracy;
+    }
+    if (_accuracyStreak++ == 0) _accuracyLostAt = DateTime.now();
+    if (accuracy > _accuracyStreakWorst) _accuracyStreakWorst = accuracy;
+  }
+
+  /// 정확도 좋은 좌표가 다시 들어왔을 때. 5개 이상 연달아 버렸던 구간만 남깁니다.
+  void accuracyOk() {
+    if (_accuracyStreak >= 5) {
+      event('accuracyLost', {
+        'from': _accuracyLostAt?.toIso8601String(),
+        'dropped': _accuracyStreak,
+        'worstMeters': _accuracyStreakWorst.round(),
+      });
+    }
+    _accuracyStreak = 0;
+    _accuracyStreakWorst = 0;
+  }
+
+  Map<String, Object?> toJson() {
+    // 끝날 때까지 정확도가 돌아오지 않았다면 그 구간도 남깁니다.
+    accuracyOk();
+    return {
+      'received': received,
+      'droppedAccuracy': droppedAccuracy,
+      'droppedStale': droppedStale,
+      'droppedOutlier': droppedOutlier,
+      'recoveries': recoveries,
+      'worstAccuracyMeters': worstAccuracy?.round(),
+      'events': List.of(events),
+    };
+  }
+}
+
 /// 진행 중인 러닝. GPS 좌표를 걸러 거리를 누적하고 운동 시간을 잽니다.
 class RunningSession extends ChangeNotifier {
   RunningSession({required this.weightKg});
@@ -443,6 +525,9 @@ class RunningSession extends ChangeNotifier {
   double _meters = 0;
   double _activeKcal = 0;
   Object? _gpsError;
+
+  /// 경로 문제 원인을 가리기 위한 진단 기록(기록 파일에만 저장).
+  final diagnostics = RunningDiagnostics();
 
   RunningStatus get status => _status;
   DateTime? get startedAt => _startedAt;
@@ -472,9 +557,15 @@ class RunningSession extends ChangeNotifier {
   void start() {
     if (_status != RunningStatus.idle) return;
     _startedAt = DateTime.now();
-    _subscription = Geolocator.getPositionStream(
-      locationSettings: runningLocationSettings(background: true),
-    ).listen(_onPosition, onError: _onError);
+    _subscription =
+        Geolocator.getPositionStream(
+          locationSettings: runningLocationSettings(background: true),
+        ).listen(
+          _onPosition,
+          onError: _onError,
+          // 러닝 중에 위치 스트림이 스스로 끝나면 이후 거리가 늘지 않으므로 기록해 둡니다.
+          onDone: () => diagnostics.event('streamClosed'),
+        );
     _stopwatch.start();
     // 초 단위 표시가 건너뛰지 않도록 1초보다 짧게 갱신합니다.
     _ticker = Timer.periodic(
@@ -490,6 +581,7 @@ class RunningSession extends ChangeNotifier {
     _pausedAt = DateTime.now();
     final p = _lastPosition;
     if (p != null) _pausePoints.add(_trackPoint(p));
+    diagnostics.event('pause');
     _status = RunningStatus.paused;
     notifyListeners();
   }
@@ -502,6 +594,7 @@ class RunningSession extends ChangeNotifier {
     if (_segments.last.isNotEmpty) _segments.add([]);
     _pausedAt = null;
     _stopwatch.start();
+    diagnostics.event('resume');
     _status = RunningStatus.running;
     notifyListeners();
   }
@@ -521,10 +614,12 @@ class RunningSession extends ChangeNotifier {
           if (s.isNotEmpty) List.unmodifiable(s),
       ],
       pausePoints: List.unmodifiable(_pausePoints),
+      diagnostics: diagnostics.toJson(),
     );
   }
 
   void _onPosition(Position position) {
+    diagnostics.positionReceived();
     _lastPosition = position;
     _gpsError = null;
     // 일시정지 중에도 GPS는 켜 두어 재개 직후 바로 위치를 잡습니다.
@@ -533,6 +628,7 @@ class RunningSession extends ChangeNotifier {
   }
 
   void _onError(Object error) {
+    diagnostics.event('gpsError', {'message': '$error'});
     _gpsError = error;
     notifyListeners();
   }
@@ -540,14 +636,18 @@ class RunningSession extends ChangeNotifier {
   /// 정확도가 낮거나 비정상적으로 튀는 좌표는 거리에서 뺍니다.
   void _track(Position p) {
     if (p.accuracy <= 0 || p.accuracy > RunningConfig.maxAccuracyMeters) {
-      return;
+      return diagnostics.accuracyDropped(p.accuracy);
     }
+    diagnostics.accuracyOk();
     final anchor = _anchor;
     if (anchor == null) return _setAnchor(p);
 
     final seconds =
         p.timestamp.difference(anchor.timestamp).inMilliseconds / 1000;
-    if (seconds <= 0) return;
+    if (seconds <= 0) {
+      diagnostics.droppedStale++;
+      return;
+    }
     final meters = Geolocator.distanceBetween(
       anchor.latitude,
       anchor.longitude,
@@ -558,7 +658,10 @@ class RunningSession extends ChangeNotifier {
     if (meters < RunningConfig.minSegmentMeters) return;
 
     if (meters / seconds > RunningConfig.maxSpeedMetersPerSecond) {
+      diagnostics.droppedOutlier++;
       if (++_outliers >= RunningConfig.maxConsecutiveOutliers) {
+        diagnostics.recoveries++;
+        diagnostics.event('recovered', {'jumpMeters': meters.round()});
         // 계속 새 위치를 가리키면 신호 복구로 보고, 거리 없이 새 구간을 시작합니다.
         if (_segments.last.isNotEmpty) _segments.add([]);
         _setAnchor(p);
@@ -645,6 +748,9 @@ class _RunningStartPageState extends State<RunningStartPage> {
   bool _ending = false;
   bool _goalReached = false;
   final _liveActivity = RunningLiveActivity();
+
+  /// 앱이 백그라운드로 가고 돌아온 시각을 진단 기록에 남깁니다.
+  late final AppLifecycleListener _lifecycle;
   Position? _followedPosition;
 
   @override
@@ -658,11 +764,16 @@ class _RunningStartPageState extends State<RunningStartPage> {
       ..addListener(_updateLiveActivity)
       ..start();
     _liveActivity.start(_liveActivityState());
+    _lifecycle = AppLifecycleListener(
+      onStateChange: (state) =>
+          _session.diagnostics.event('app', {'state': state.name}),
+    );
   }
 
   @override
   void dispose() {
     WakelockPlus.disable();
+    _lifecycle.dispose();
     _liveActivity.end();
     _session.dispose();
     _map.dispose();

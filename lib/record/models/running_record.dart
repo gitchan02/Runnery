@@ -39,7 +39,11 @@ class RunningRecord {
     this.speeds = const [],
     this.splitSeconds = const [],
     this.pauseFractions = const [],
+    this.diagnostics,
   });
+
+  /// 러닝 중 GPS 진단 기록(받은·버린 위치 수, 백그라운드 전환, 위치 공백 등). 화면에는 쓰지 않습니다.
+  final Map<String, dynamic>? diagnostics;
   final DateTime? finishedAt;
   final int? movingMilliseconds;
   double get _movingSeconds =>
@@ -100,6 +104,7 @@ class RunningRecord {
     'speedDistancesKm': speedDistancesKm,
     'splitSeconds': splitSeconds,
     'pauseFractions': pauseFractions,
+    'diagnostics': ?diagnostics,
     'route': [
       for (final p in route)
         {
@@ -166,6 +171,7 @@ class RunningRecord {
       pauseFractions: List.unmodifiable(
         (json['pauseFractions'] as List).map(number),
       ),
+      diagnostics: json['diagnostics'] as Map<String, dynamic>?,
     );
   }
 

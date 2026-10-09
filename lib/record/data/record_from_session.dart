@@ -28,6 +28,7 @@ RunningRecord recordFromSession(session.RunningRecord source) => RunningRecord(
   splitSeconds: List.unmodifiable(
     source.splits.where((s) => s.isFull).map((s) => s.duration.inSeconds),
   ),
+  diagnostics: source.diagnostics,
   pauseFractions: source.distanceMeters <= 0
       ? const []
       : List.unmodifiable(

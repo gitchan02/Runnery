@@ -124,12 +124,16 @@ void main() {
         [c, d],
       ],
       pausePoints: [b],
+      diagnostics: {'received': 4, 'droppedAccuracy': 1},
     );
     final converted = recordFromSession(source);
     final decoded = RunningRecord.fromJson(
       jsonDecode(jsonEncode(converted.toJson())) as Map<String, dynamic>,
     );
     expect(decoded.distanceKm, .06);
+    expect(decoded.diagnostics?['droppedAccuracy'], 1);
+    // 메모를 고쳐 다시 저장해도 진단 기록은 남습니다.
+    expect(decoded.withMemo('memo').diagnostics?['received'], 4);
     expect(decoded.pauseSeconds, 20);
     expect(decoded.averageSpeed, source.averageSpeedKmh);
     expect(decoded.maxSpeed, source.maxSpeedKmh);
@@ -165,6 +169,23 @@ void main() {
     ];
     final kcal = gps.RunningCalc.activeCalories([points], 65);
     expect(kcal, closeTo(.1 * points.last.meters * 65 / 1000 * 5, .01));
+  });
+
+  test('diagnostics keep counts and long accuracy losses', () {
+    final d = gps.RunningDiagnostics();
+    for (var i = 0; i < 6; i++) {
+      d.accuracyDropped(40.0 + i);
+    }
+    d.accuracyOk();
+    d.accuracyDropped(30);
+    d.accuracyOk();
+    final json = d.toJson();
+    expect(json['droppedAccuracy'], 7);
+    expect(json['worstAccuracyMeters'], 45);
+    final events = json['events']! as List;
+    // 5개 이상 연달아 버린 구간만 사건으로 남습니다.
+    expect(events, hasLength(1));
+    expect((events.single as Map)['dropped'], 6);
   });
 
   test('missing speed data does not become an invented maximum', () {
