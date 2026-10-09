@@ -15,5 +15,8 @@ import UIKit
     if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "RunningLiveActivity") {
       RunningLiveActivityChannel.register(with: registrar.messenger())
     }
+    if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "RouteSnapshot") {
+      RouteSnapshotChannel.register(with: registrar.messenger())
+    }
   }
 }

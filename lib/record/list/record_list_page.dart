@@ -449,7 +449,9 @@ class _RecordListPageV2State extends State<RecordListPageV2> {
           SizedBox(
             width: 88,
             height: 88,
-            child: RecordRouteMap(record: r, borderRadius: 17, basemap: true),
+            // 기록마다 실제 지도를 띄우면 지도가 여러 개 겹쳐 화면을 넘길 때 잔상이 남습니다.
+            // 그래서 지도는 한 번 사진으로 만들어 두고 그 사진을 보여 줍니다.
+            child: RecordRouteThumbnail(record: r),
           ),
           const SizedBox(width: 16),
           Expanded(

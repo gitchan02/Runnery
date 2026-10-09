@@ -1,9 +1,11 @@
+import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:maplibre_gl/maplibre_gl.dart' show LatLng;
 
 import '../../../design_system/app_text_styles.dart';
+import '../../data/route_thumbnails.dart';
 import '../../../home/running/running_home_page.dart'
     show
         MapMarker,
@@ -289,6 +291,64 @@ class RecordRouteMap extends StatelessWidget {
       ),
     );
   }
+}
+
+/// 기록 목록 썸네일. 저장해 둔 지도 사진을 보여 주고, 아직 없거나 만들 수 없으면 경로 그림을 보여 줍니다.
+class RecordRouteThumbnail extends StatefulWidget {
+  const RecordRouteThumbnail({
+    super.key,
+    required this.record,
+    this.borderRadius = 17,
+  });
+  final RunningRecord record;
+  final double borderRadius;
+
+  @override
+  State<RecordRouteThumbnail> createState() => _RecordRouteThumbnailState();
+}
+
+class _RecordRouteThumbnailState extends State<RecordRouteThumbnail> {
+  Future<File?>? _photo;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  @override
+  void didUpdateWidget(RecordRouteThumbnail old) {
+    super.didUpdateWidget(old);
+    if (old.record.id != widget.record.id) _load();
+  }
+
+  void _load() {
+    // 위젯 테스트처럼 지도 엔진이 없으면 경로 그림만 씁니다.
+    _photo = RecordRouteMap.basemapEnabled
+        ? RouteThumbnails.instance.get(widget.record)
+        : null;
+  }
+
+  @override
+  Widget build(BuildContext context) => FutureBuilder<File?>(
+    future: _photo,
+    builder: (context, snapshot) {
+      final file = snapshot.data;
+      if (file == null) {
+        return RecordRouteMap(
+          record: widget.record,
+          borderRadius: widget.borderRadius,
+        );
+      }
+      return Semantics(
+        label: '저장된 GPS 경로 미리보기',
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(widget.borderRadius),
+          child: Image.file(file, fit: BoxFit.cover, gaplessPlayback: true),
+        ),
+      );
+    },
+  );
 }
 
 class _RecordBasemap extends StatefulWidget {

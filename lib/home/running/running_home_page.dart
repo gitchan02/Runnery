@@ -2084,6 +2084,17 @@ const _labelLayerIds = [
   'poi-subway',
 ];
 
+/// 기록 목록 썸네일 지도 사진용 스타일. 작은 칸에서는 글자를 읽을 수 없어 지명·도로명을 뺍니다.
+String runneryThumbnailStyle() {
+  final style =
+      jsonDecode(_runneryMapStyle(RouteWidth.preview)) as Map<String, dynamic>;
+  style['layers'] = [
+    for (final layer in style['layers'] as List)
+      if ((layer as Map)['type'] != 'symbol') layer,
+  ];
+  return jsonEncode(style);
+}
+
 String _runneryMapStyle(double routeWidth, [double routeOpacity = 1]) {
   const name = [
     'coalesce',

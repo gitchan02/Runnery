@@ -22,6 +22,7 @@
 		BEF4BA0C766DFDF09C8A675A /* RunningLiveActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3352C6BA1AFD83C211311949 /* RunningLiveActivity.swift */; };
 		C253C5C45BF0DA201BE1F651 /* RunningActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7E9C32D5217D35353B454F5 /* RunningActivityAttributes.swift */; };
 		D3BBE5BD78A3CB7C13582497 /* RunningActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7E9C32D5217D35353B454F5 /* RunningActivityAttributes.swift */; };
+		F730F7F00E8CEDAA6D2BD66C /* RouteSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2246E1B0CEA5A9B2C0483F5F /* RouteSnapshot.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -69,6 +70,7 @@
 		0678C754AC22E62BCEB66601 /* RunneryLiveActivity.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RunneryLiveActivity.swift; sourceTree = "<group>"; };
 		1498D2321E8E86230040F4C2 /* GeneratedPluginRegistrant.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = GeneratedPluginRegistrant.h; sourceTree = "<group>"; };
 		1498D2331E8E89220040F4C2 /* GeneratedPluginRegistrant.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = GeneratedPluginRegistrant.m; sourceTree = "<group>"; };
+		2246E1B0CEA5A9B2C0483F5F /* RouteSnapshot.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RouteSnapshot.swift; sourceTree = "<group>"; };
 		331C807B294A618700263BE5 /* RunnerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RunnerTests.swift; sourceTree = "<group>"; };
 		331C8081294A63A400263BE5 /* RunnerTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = RunnerTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		3352C6BA1AFD83C211311949 /* RunningLiveActivity.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RunningLiveActivity.swift; sourceTree = "<group>"; };
@@ -177,6 +179,7 @@
 				74858FAD1ED2DC5600515810 /* Runner-Bridging-Header.h */,
 				C7E9C32D5217D35353B454F5 /* RunningActivityAttributes.swift */,
 				3352C6BA1AFD83C211311949 /* RunningLiveActivity.swift */,
+				2246E1B0CEA5A9B2C0483F5F /* RouteSnapshot.swift */,
 			);
 			path = Runner;
 			sourceTree = "<group>";
@@ -382,6 +385,7 @@
 				7884E8682EC3CC0700C636F2 /* SceneDelegate.swift in Sources */,
 				D3BBE5BD78A3CB7C13582497 /* RunningActivityAttributes.swift in Sources */,
 				BEF4BA0C766DFDF09C8A675A /* RunningLiveActivity.swift in Sources */,
+				F730F7F00E8CEDAA6D2BD66C /* RouteSnapshot.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

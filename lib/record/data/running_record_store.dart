@@ -35,6 +35,10 @@ class RunningRecordStore extends ChangeNotifier {
     return List.unmodifiable(records);
   }
 
+  /// 기록 목록 썸네일 지도 사진 파일. 기록과 같은 폴더에 두어 삭제·초기화 때 함께 지워집니다.
+  Future<File> thumbnailFile(String id) async =>
+      File('${(await _folder()).path}/$id.png');
+
   /// 저장된 러닝 기록을 모두 지웁니다. 새 계정을 만들 때 씁니다.
   Future<void> clear() {
     final operation = _pending.then((_) async {
@@ -57,8 +61,10 @@ class RunningRecordStore extends ChangeNotifier {
       if (!RegExp(r'^[a-zA-Z0-9_-]+$').hasMatch(id)) {
         throw const FormatException('Invalid record id');
       }
-      final file = File('${(await _folder()).path}/$id.json');
-      if (await file.exists()) await file.delete();
+      final folder = (await _folder()).path;
+      for (final file in [File('$folder/$id.json'), File('$folder/$id.png')]) {
+        if (await file.exists()) await file.delete();
+      }
       notifyListeners();
     });
     _pending = operation.then<void>(
