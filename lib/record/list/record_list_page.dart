@@ -5,6 +5,7 @@ import '../../home/home_page.dart';
 import '../../profile/profile_main_page.dart';
 import '../record_calendar_page.dart';
 import 'detail/record_detail_page.dart';
+import '../data/record_places.dart';
 import '../data/running_record_store.dart';
 
 /// 로컬 러닝 기록을 표시하는 테스트용 Record 탭.
@@ -55,6 +56,8 @@ class _RecordListPageV2State extends State<RecordListPageV2> {
   Future<void> _reload() async {
     try {
       final saved = widget.records ?? await _store.load();
+      // 장소 이름 없이 저장된 기록은 뒤에서 이름을 찾아 채웁니다(채우면 목록이 다시 읽힙니다).
+      if (widget.records == null) RecordPlaces.instance.fill(_store, saved);
       if (mounted) {
         setState(() {
           _saved = saved;
@@ -96,7 +99,9 @@ class _RecordListPageV2State extends State<RecordListPageV2> {
       MaterialPageRoute(
         builder: (_) => RecordDetailPage(
           record: r,
-          onSaveMemo: (value) => _store.save(r.withMemo(value)),
+          // 열어 둔 사이 장소 이름이 채워졌을 수 있어 저장된 최신 기록에 메모만 바꿉니다.
+          onSaveMemo: (value) =>
+              _store.update(r.id, (current) => current.withMemo(value)),
           onDelete: () => _store.delete(r.id),
         ),
       ),

@@ -188,6 +188,24 @@ void main() {
     expect((events.single as Map)['dropped'], 6);
   });
 
+  test('places fill in later without losing a memo saved meanwhile', () async {
+    final run = record('placed', DateTime(2026, 10, 1));
+    expect(run.missingPlaces, isTrue);
+    await store.save(run);
+    await store.update('placed', (r) => r.withMemo('good run'));
+    await store.update(
+      'placed',
+      (r) => r.withPlaces(area: '오류동', start: '오류역', end: null),
+    );
+    final loaded = (await store.load()).single;
+    expect(loaded.memo, 'good run');
+    expect(loaded.place, '오류동');
+    expect(loaded.startPlace, '오류역');
+    expect(loaded.endPlace, unknownPlace);
+    await store.update('missing', (r) => r.withMemo('x'));
+    expect(await store.load(), hasLength(1));
+  });
+
   test('missing speed data does not become an invented maximum', () {
     final r = record('no-speed', DateTime(2026));
     expect(r.toJson()['maxSpeedKmh'], isNull);

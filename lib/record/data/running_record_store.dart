@@ -55,6 +55,16 @@ class RunningRecordStore extends ChangeNotifier {
     return operation;
   }
 
+  /// 저장된 최신 기록을 읽어 [change]를 적용해 다시 저장합니다. 메모와 장소 이름처럼
+  /// 서로 다른 때 바뀌는 값이 덮어써지지 않게 합니다. 없는 기록이면 아무 일도 하지 않습니다.
+  Future<void> update(
+    String id,
+    RunningRecord Function(RunningRecord) change,
+  ) async {
+    final current = (await load()).where((r) => r.id == id).firstOrNull;
+    if (current != null) await save(change(current));
+  }
+
   /// 기록 하나를 지웁니다. 없는 기록이면 아무 일도 하지 않습니다.
   Future<void> delete(String id) {
     final operation = _pending.then((_) async {

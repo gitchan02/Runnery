@@ -17,6 +17,9 @@ class RecordCoordinate {
   final double longitude;
 }
 
+/// 장소 이름을 아직 찾지 못했을 때 보여 주는 문구.
+const unknownPlace = '위치 정보 없음';
+
 @immutable
 class RunningRecord {
   const RunningRecord({
@@ -32,9 +35,9 @@ class RunningRecord {
     this.caloriesKcal,
     this.weightKg,
     this.speedDistancesKm = const [],
-    this.place = '위치 정보 없음',
-    this.startPlace = '위치 정보 없음',
-    this.endPlace = '위치 정보 없음',
+    this.place = unknownPlace,
+    this.startPlace = unknownPlace,
+    this.endPlace = unknownPlace,
     this.memo = '',
     this.speeds = const [],
     this.splitSeconds = const [],
@@ -177,6 +180,21 @@ class RunningRecord {
 
   RunningRecord withMemo(String value) =>
       RunningRecord.fromJson({...toJson(), 'memo': value});
+
+  /// 찾은 장소 이름만 바꿉니다. null인 값은 그대로 둡니다.
+  RunningRecord withPlaces({String? area, String? start, String? end}) =>
+      RunningRecord.fromJson({
+        ...toJson(),
+        'place': ?area,
+        'startPlace': ?start,
+        'endPlace': ?end,
+      });
+
+  /// 출발·도착·동네 이름 중 아직 찾지 못한 것이 있는지.
+  bool get missingPlaces =>
+      place == unknownPlace ||
+      startPlace == unknownPlace ||
+      endPlace == unknownPlace;
 }
 
 String clockText(DateTime time) =>

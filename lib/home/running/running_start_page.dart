@@ -21,6 +21,7 @@ import 'running_live_activity.dart';
 import 'running_voice.dart';
 import 'running_result_page.dart';
 import '../../record/data/record_from_session.dart';
+import '../../record/data/record_places.dart';
 import '../../record/data/running_record_store.dart';
 
 // ═════════════════════════════════════════════════════
@@ -387,39 +388,44 @@ class RunningRecord {
   }
 
   /// 출발·도착 지명. 결과·상세 화면이 같은 결과를 씁니다.
-  late final Future<RunningPlaces> places = _resolvePlaces();
+  late final Future<RunningPlaces> places = points.isEmpty
+      ? Future.value(const RunningPlaces())
+      : resolveRunningPlaces(points.first.latLng, points.last.latLng);
+}
 
-  Future<RunningPlaces> _resolvePlaces() async {
-    if (points.isEmpty) return const RunningPlaces();
-    Future<Placemark?> lookup(LatLng p) async {
-      try {
-        final list = await Geocoding().placemarkFromCoordinates(
-          p.latitude,
-          p.longitude,
-        );
-        return list.firstOrNull;
-      } catch (_) {
-        return null;
-      }
+/// 출발·도착 좌표의 지명과 출발지 동네 이름. 인터넷이 없거나 찾지 못하면 비어 있는 값입니다.
+Future<RunningPlaces> resolveRunningPlaces(
+  LatLng startPoint,
+  LatLng endPoint,
+) async {
+  Future<Placemark?> lookup(LatLng p) async {
+    try {
+      final list = await Geocoding().placemarkFromCoordinates(
+        p.latitude,
+        p.longitude,
+      );
+      return list.firstOrNull;
+    } catch (_) {
+      return null;
     }
-
-    String? nameOf(Placemark? p) => [
-      p?.name,
-      p?.thoroughfare,
-      p?.subLocality,
-    ].firstWhere((s) => s != null && s.isNotEmpty, orElse: () => null);
-
-    final start = await lookup(points.first.latLng);
-    final end = await lookup(points.last.latLng);
-    return RunningPlaces(
-      start: nameOf(start),
-      end: nameOf(end),
-      area: [
-        start?.subLocality,
-        start?.locality,
-      ].firstWhere((s) => s != null && s.isNotEmpty, orElse: () => null),
-    );
   }
+
+  String? nameOf(Placemark? p) => [
+    p?.name,
+    p?.thoroughfare,
+    p?.subLocality,
+  ].firstWhere((s) => s != null && s.isNotEmpty, orElse: () => null);
+
+  final start = await lookup(startPoint);
+  final end = await lookup(endPoint);
+  return RunningPlaces(
+    start: nameOf(start),
+    end: nameOf(end),
+    area: [
+      start?.subLocality,
+      start?.locality,
+    ].firstWhere((s) => s != null && s.isNotEmpty, orElse: () => null),
+  );
 }
 
 // ═════════════════════════════════════════════════════
@@ -917,6 +923,7 @@ class _RunningStartPageState extends State<RunningStartPage> {
         while (mounted) {
           try {
             await RunningRecordStore.instance.save(saved);
+            RecordPlaces.instance.fill(RunningRecordStore.instance, [saved]);
             break;
           } catch (_) {
             if (!mounted) return;
