@@ -246,11 +246,15 @@ void main() {
     expect(session.distanceMeters, closeTo(10, .5));
 
     // 다시 걷기 시작하면 멈춘 곳부터 거리가 이어지고 시간도 다시 잽니다.
-    clock = clock.add(const Duration(seconds: 3));
-    session.addPosition(at(13, speed: 1.4));
+    // 속도 정보가 없어도 멈춘 곳에서 10m 넘게 벗어나면 다시 잽니다(시뮬레이터에서 본 경우).
+    clock = clock.add(const Duration(seconds: 40));
+    session.addPosition(at(25, speed: 0));
     expect(session.autoPaused, isFalse);
-    expect(session.distanceMeters, closeTo(13, .5));
+    expect(session.distanceMeters, closeTo(25, .5));
     expect(session.segments, hasLength(1));
+    // 다시 잰 직후에는 멈춰 있던 시간 때문에 곧바로 다시 멈추지 않습니다.
+    session.checkAutoPause();
+    expect(session.autoPaused, isFalse);
     session.dispose();
   });
 

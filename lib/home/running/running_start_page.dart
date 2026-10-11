@@ -655,6 +655,8 @@ class RunningSession extends ChangeNotifier {
 
   void _autoResume() {
     _autoPaused = false;
+    // 다시 움직인 순간부터 10초를 새로 셉니다. 안 그러면 멈춰 있던 시간 때문에 곧바로 다시 멈춥니다.
+    _lastMovedAt = _now();
     _stopwatch.start();
     diagnostics.event('autoResume');
   }
