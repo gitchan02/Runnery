@@ -18,5 +18,8 @@ import UIKit
     if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "RouteSnapshot") {
       RouteSnapshotChannel.register(with: registrar.messenger())
     }
+    if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "VoiceGuide") {
+      VoiceGuideChannel.register(with: registrar.messenger())
+    }
   }
 }

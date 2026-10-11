@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:runnery_new/home/running/running_home_page.dart';
+import 'package:runnery_new/home/running/running_voice.dart';
 
 void main() {
   RunningStartOptions options(RunningMode mode) => RunningStartOptions(
@@ -36,5 +37,19 @@ void main() {
     expect(RunningGoal.minutes(45), '45분');
     expect(RunningGoal.minutes(60), '1시간');
     expect(RunningGoal.minutes(90), '1시간 30분');
+  });
+
+  test('voice reads durations and distances naturally', () {
+    expect(RunningVoice.duration(const Duration(seconds: 42)), '42초');
+    expect(
+      RunningVoice.duration(const Duration(minutes: 6, seconds: 12)),
+      '6분 12초',
+    );
+    expect(
+      RunningVoice.duration(const Duration(hours: 1, seconds: 5)),
+      '1시간 0분 5초',
+    );
+    expect(RunningVoice.km(5), '5킬로미터');
+    expect(RunningVoice.km(5.5), '5.5킬로미터');
   });
 }

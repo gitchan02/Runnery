@@ -11,6 +11,7 @@
 		1498D2341E8E89220040F4C2 /* GeneratedPluginRegistrant.m in Sources */ = {isa = PBXBuildFile; fileRef = 1498D2331E8E89220040F4C2 /* GeneratedPluginRegistrant.m */; };
 		331C808B294A63AB00263BE5 /* RunnerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 331C807B294A618700263BE5 /* RunnerTests.swift */; };
 		3B3967161E833CAA004F5970 /* AppFrameworkInfo.plist in Resources */ = {isa = PBXBuildFile; fileRef = 3B3967151E833CAA004F5970 /* AppFrameworkInfo.plist */; };
+		3DAC9B89822427243B47F580 /* VoiceGuide.swift in Sources */ = {isa = PBXBuildFile; fileRef = 847B430CF6B4F3B1C322A1AC /* VoiceGuide.swift */; };
 		74858FAF1ED2DC5600515810 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74858FAE1ED2DC5600515810 /* AppDelegate.swift */; };
 		7884E8682EC3CC0700C636F2 /* SceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7884E8672EC3CC0400C636F2 /* SceneDelegate.swift */; };
 		78A318202AECB46A00862997 /* FlutterGeneratedPluginSwiftPackage in Frameworks */ = {isa = PBXBuildFile; productRef = 78A3181F2AECB46A00862997 /* FlutterGeneratedPluginSwiftPackage */; };
@@ -80,6 +81,7 @@
 		7884E8672EC3CC0400C636F2 /* SceneDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SceneDelegate.swift; sourceTree = "<group>"; };
 		78E0A7A72DC9AD7400C4905E /* FlutterGeneratedPluginSwiftPackage */ = {isa = PBXFileReference; lastKnownFileType = wrapper; name = FlutterGeneratedPluginSwiftPackage; path = Flutter/ephemeral/Packages/FlutterGeneratedPluginSwiftPackage; sourceTree = "<group>"; };
 		7AFA3C8E1D35360C0083082E /* Release.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = Release.xcconfig; path = Flutter/Release.xcconfig; sourceTree = "<group>"; };
+		847B430CF6B4F3B1C322A1AC /* VoiceGuide.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VoiceGuide.swift; sourceTree = "<group>"; };
 		8798313DA913756A4D7E2C28 /* RunneryLiveActivity.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = RunneryLiveActivity.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		8A74E8E76088C5D03A9B3B0F /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS18.0.sdk/System/Library/Frameworks/Foundation.framework; sourceTree = DEVELOPER_DIR; };
 		93DDEC7D2BDDF7F90C6C8D75 /* Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
@@ -180,6 +182,7 @@
 				C7E9C32D5217D35353B454F5 /* RunningActivityAttributes.swift */,
 				3352C6BA1AFD83C211311949 /* RunningLiveActivity.swift */,
 				2246E1B0CEA5A9B2C0483F5F /* RouteSnapshot.swift */,
+				847B430CF6B4F3B1C322A1AC /* VoiceGuide.swift */,
 			);
 			path = Runner;
 			sourceTree = "<group>";
@@ -386,6 +389,7 @@
 				D3BBE5BD78A3CB7C13582497 /* RunningActivityAttributes.swift in Sources */,
 				BEF4BA0C766DFDF09C8A675A /* RunningLiveActivity.swift in Sources */,
 				F730F7F00E8CEDAA6D2BD66C /* RouteSnapshot.swift in Sources */,
+				3DAC9B89822427243B47F580 /* VoiceGuide.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

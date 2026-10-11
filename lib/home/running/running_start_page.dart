@@ -18,6 +18,7 @@ import '../../design_system/app_spacing.dart';
 import '../../design_system/app_text_styles.dart';
 import 'running_home_page.dart';
 import 'running_live_activity.dart';
+import 'running_voice.dart';
 import 'running_result_page.dart';
 import '../../record/data/record_from_session.dart';
 import '../../record/data/running_record_store.dart';
@@ -749,6 +750,11 @@ class _RunningStartPageState extends State<RunningStartPage> {
   bool _goalReached = false;
   final _liveActivity = RunningLiveActivity();
 
+  final _voice = RunningVoice();
+
+  /// 마지막으로 읽어 준 km. 1km를 넘을 때마다 한 번씩 안내합니다.
+  int _spokenKm = 0;
+
   /// 앱이 백그라운드로 가고 돌아온 시각을 진단 기록에 남깁니다.
   late final AppLifecycleListener _lifecycle;
   Position? _followedPosition;
@@ -762,7 +768,15 @@ class _RunningStartPageState extends State<RunningStartPage> {
       ..addListener(_followCamera)
       ..addListener(_checkGoal)
       ..addListener(_updateLiveActivity)
+      ..addListener(_announceKm)
       ..start();
+    // '5킬로미터예요', '30분이에요': 거리는 받침이 없고 시간은 받침이 있습니다.
+    final goal = _goalText;
+    _say(
+      goal == null
+          ? '러닝을 시작합니다.'
+          : '러닝을 시작합니다. 목표는 $goal${widget.options.mode == RunningMode.distanceGoal ? '예요' : '이에요'}.',
+    );
     _liveActivity.start(_liveActivityState());
     _lifecycle = AppLifecycleListener(
       onStateChange: (state) =>
@@ -803,6 +817,40 @@ class _RunningStartPageState extends State<RunningStartPage> {
 
   void _updateLiveActivity() => _liveActivity.update(_liveActivityState());
 
+  /// 음성 안내가 켜져 있을 때만 읽습니다.
+  void _say(String text) {
+    if (widget.options.voiceGuide) _voice.speak(text);
+  }
+
+  /// 읽기용 목표. 예: 5킬로미터, 30분. 자유 러닝이면 null.
+  String? get _goalText => switch (widget.options.mode) {
+    RunningMode.free => null,
+    RunningMode.distanceGoal => RunningVoice.km(widget.options.goalKm),
+    RunningMode.timeGoal => RunningGoal.minutes(widget.options.goalMinutes),
+  };
+
+  /// 1km마다 거리·시간·평균 페이스를 읽어 줍니다. 거리 목표면 남은 거리도 알려 줍니다.
+  void _announceKm() {
+    final km = (_session.distanceMeters / 1000).floor();
+    if (km <= _spokenKm) return;
+    _spokenKm = km;
+    final pace = _session.paceSecondsPerKm;
+    final options = widget.options;
+    final left = options.mode == RunningMode.distanceGoal
+        ? options.goalKm - _session.distanceMeters / 1000
+        : null;
+    _say(
+      [
+        '$km킬로미터.',
+        '시간 ${RunningVoice.duration(_session.elapsed)}.',
+        if (pace != null)
+          '평균 페이스 ${RunningVoice.duration(Duration(seconds: pace.round()))}.',
+        if (left != null && left > 0.05)
+          '목표까지 ${left.toStringAsFixed(1)}킬로미터 남았어요.',
+      ].join(' '),
+    );
+  }
+
   /// 목표를 처음 채운 순간 한 번만 진동과 안내를 띄웁니다. 러닝은 계속 이어집니다.
   void _checkGoal() {
     if (_goalReached) return;
@@ -813,6 +861,11 @@ class _RunningStartPageState extends State<RunningStartPage> {
     if (progress == null || progress < 1) return;
     _goalReached = true;
     HapticFeedback.heavyImpact();
+    _say(
+      widget.options.mode == RunningMode.distanceGoal
+          ? '목표 거리 $_goalText를 달성했어요. 계속 달려도 돼요.'
+          : '목표 시간 $_goalText을 채웠어요. 계속 달려도 돼요.',
+    );
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
         behavior: SnackBarBehavior.floating,
@@ -829,12 +882,14 @@ class _RunningStartPageState extends State<RunningStartPage> {
 
   void _pause() {
     HapticFeedback.mediumImpact();
+    _say('일시정지했어요.');
     setState(() => _collapsed = false);
     _session.pause();
   }
 
   void _resume() {
     HapticFeedback.mediumImpact();
+    _say('다시 시작합니다.');
     _session.resume();
   }
 
