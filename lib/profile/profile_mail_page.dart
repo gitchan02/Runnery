@@ -45,7 +45,7 @@ class ProfileMailPage extends StatefulWidget {
 }
 
 class _ProfileMailPageState extends State<ProfileMailPage> {
-  final settings = ProfileSettings();
+  final settings = ProfileSettings.instance;
   late final AccountStore _account = widget.account ?? AccountStore.instance;
   late final RunningRecordStore _store =
       widget.records ?? RunningRecordStore.instance;
@@ -55,6 +55,7 @@ class _ProfileMailPageState extends State<ProfileMailPage> {
   void initState() {
     super.initState();
     _store.addListener(_reload);
+    settings.load();
     // 프로필 수정에서 저장하면 이름·아이디·사진을 바로 다시 그립니다.
     _account.addListener(_onAccountChanged);
     _reload();
@@ -64,7 +65,6 @@ class _ProfileMailPageState extends State<ProfileMailPage> {
   void dispose() {
     _store.removeListener(_reload);
     _account.removeListener(_onAccountChanged);
-    settings.dispose();
     super.dispose();
   }
 

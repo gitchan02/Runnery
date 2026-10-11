@@ -23,6 +23,7 @@ import '../../design_system/app_motion.dart';
 import '../../design_system/app_radius.dart';
 import '../../design_system/app_spacing.dart';
 import '../../design_system/app_text_styles.dart';
+import '../../profile/setting/profile_setting.dart';
 import 'running_start_page.dart';
 
 enum RunningMode { free, distanceGoal, timeGoal }
@@ -158,10 +159,24 @@ class _RunningHomePageState extends State<RunningHomePage> {
   bool _autoPause = true;
   bool _countingDown = false;
 
+  /// 설정 화면에서 정한 음성 안내·자동 일시정지·카운트다운. 시작 시트에서 바꾸면 이번 러닝에만 적용됩니다.
+  final _settings = ProfileSettings.instance;
+  bool _optionsTouched = false;
+
   @override
   void initState() {
     super.initState();
     _startLocation();
+    _voiceGuide = _settings.voice;
+    _autoPause = _settings.autoPause;
+    _settings.load().then((_) {
+      // 설정을 읽는 사이 사용자가 직접 바꿨으면 그 값을 둡니다.
+      if (!mounted || _optionsTouched) return;
+      setState(() {
+        _voiceGuide = _settings.voice;
+        _autoPause = _settings.autoPause;
+      });
+    });
   }
 
   @override
@@ -260,6 +275,10 @@ class _RunningHomePageState extends State<RunningHomePage> {
         _showLocationProblem();
         return;
       }
+    }
+    if (_settings.countdownSeconds == 0) {
+      await _onCountdownFinished();
+      return;
     }
     setState(() => _countingDown = true);
   }
@@ -372,6 +391,7 @@ class _RunningHomePageState extends State<RunningHomePage> {
                   ? _CountdownView(
                       key: const ValueKey('countdown'),
                       voiceGuide: _voiceGuide,
+                      seconds: _settings.countdownSeconds,
                       position: position,
                       onFinished: _onCountdownFinished,
                     )
@@ -478,10 +498,14 @@ class _RunningHomePageState extends State<RunningHomePage> {
                       !(_locationState == RunningLocationState.ready &&
                           position == null),
                   onModeChanged: (mode) => setState(() => _mode = mode),
-                  onVoiceGuideToggled: () =>
-                      setState(() => _voiceGuide = !_voiceGuide),
-                  onAutoPauseToggled: () =>
-                      setState(() => _autoPause = !_autoPause),
+                  onVoiceGuideToggled: () => setState(() {
+                    _optionsTouched = true;
+                    _voiceGuide = !_voiceGuide;
+                  }),
+                  onAutoPauseToggled: () => setState(() {
+                    _optionsTouched = true;
+                    _autoPause = !_autoPause;
+                  }),
                   onStart: _onStartPressed,
                 ),
               ],
@@ -1217,11 +1241,15 @@ class _CountdownView extends StatefulWidget {
   const _CountdownView({
     super.key,
     required this.voiceGuide,
+    required this.seconds,
     required this.position,
     required this.onFinished,
   });
 
   final bool voiceGuide;
+
+  /// 설정의 카운트다운 초(3·5·10).
+  final int seconds;
   final Position? position;
   final VoidCallback onFinished;
 
@@ -1231,10 +1259,13 @@ class _CountdownView extends StatefulWidget {
 
 class _CountdownViewState extends State<_CountdownView>
     with SingleTickerProviderStateMixin {
-  static final _seconds = AppMotion.countdown.inSeconds;
+  late final _seconds = widget.seconds;
 
   late final AnimationController _controller =
-      AnimationController(vsync: this, duration: AppMotion.countdown)
+      AnimationController(
+          vsync: this,
+          duration: Duration(seconds: _seconds),
+        )
         ..addListener(_onTick)
         ..addStatusListener((status) {
           if (status == AnimationStatus.completed) _finish();
