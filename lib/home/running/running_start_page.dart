@@ -7,7 +7,6 @@ import 'package:flutter/services.dart';
 import 'package:geocoding/geocoding.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:maplibre_gl/maplibre_gl.dart' show LatLng;
-import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '../../account/account_store.dart';
 import '../../design_system/app_colors.dart';
@@ -768,8 +767,7 @@ class _RunningStartPageState extends State<RunningStartPage> {
   @override
   void initState() {
     super.initState();
-    // 백그라운드 GPS가 없어 화면이 꺼지면 기록이 멈추므로 켜 둡니다.
-    WakelockPlus.enable();
+    // 화면이 꺼져도 위치를 계속 받으므로, 배터리를 아끼려고 화면을 억지로 켜 두지 않습니다.
     _session
       ..addListener(_followCamera)
       ..addListener(_checkGoal)
@@ -792,7 +790,6 @@ class _RunningStartPageState extends State<RunningStartPage> {
 
   @override
   void dispose() {
-    WakelockPlus.disable();
     _lifecycle.dispose();
     _liveActivity.end();
     _session.dispose();
@@ -801,6 +798,10 @@ class _RunningStartPageState extends State<RunningStartPage> {
   }
 
   void _followCamera() {
+    // 화면이 안 보일 때는 지도를 움직이지 않아 배터리를 아낍니다. 돌아오면 다음 위치에서 따라갑니다.
+    if (WidgetsBinding.instance.lifecycleState != AppLifecycleState.resumed) {
+      return;
+    }
     final p = _session.lastPosition;
     if (p == null || identical(p, _followedPosition)) return;
     _followedPosition = p;
