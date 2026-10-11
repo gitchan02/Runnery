@@ -692,14 +692,26 @@ class _LiveLocationMapState extends State<_LiveLocationMap> {
   @override
   void initState() {
     super.initState();
-    _start();
+    runningLocationActive.addListener(_onRunningChanged);
+    if (!runningLocationActive.value) _start();
   }
 
   @override
   void dispose() {
+    runningLocationActive.removeListener(_onRunningChanged);
     _sub?.cancel();
     _map.dispose();
     super.dispose();
+  }
+
+  /// 러닝 중에는 위치를 받지 않습니다([runningLocationActive] 참고). 러닝이 끝나면 다시 받습니다.
+  void _onRunningChanged() {
+    if (runningLocationActive.value) {
+      _sub?.cancel();
+      _sub = null;
+    } else if (_sub == null) {
+      _start();
+    }
   }
 
   Future<void> _start() async {
@@ -719,7 +731,8 @@ class _LiveLocationMapState extends State<_LiveLocationMap> {
         return;
       }
       final last = await Geolocator.getLastKnownPosition();
-      if (!mounted) return;
+      // 권한을 확인하는 사이 러닝이 시작됐으면 위치 통로를 열지 않습니다.
+      if (!mounted || runningLocationActive.value || _sub != null) return;
       if (last != null) setState(() => _position = last);
       _sub = Geolocator.getPositionStream(
         locationSettings: runningLocationSettings(),

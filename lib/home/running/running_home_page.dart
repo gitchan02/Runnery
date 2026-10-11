@@ -110,6 +110,11 @@ enum RunningLocationState {
   deniedForever,
 }
 
+/// 러닝 기록 중인지. 위치 패키지(geolocator)는 앱 전체에서 위치 통로를 하나만 열고, 이미 열려 있으면
+/// 나중 요청의 설정을 무시합니다. 그래서 러닝 중에는 다른 화면(홈 지도 카드)이 위치를 받지 않게 해,
+/// 러닝 화면이 '화면이 꺼져도 받기' 설정으로 통로를 새로 열게 합니다.
+final runningLocationActive = ValueNotifier<bool>(false);
+
 /// 러닝용 GPS 설정. 1초 간격.
 /// [background]가 true면 화면이 꺼지거나 다른 앱으로 가도 위치를 계속 받습니다(러닝 중에만).
 LocationSettings runningLocationSettings({bool background = false}) =>
@@ -266,7 +271,8 @@ class _RunningHomePageState extends State<RunningHomePage> {
       goalKm: _goalKm,
       goalMinutes: _goalMinutes,
     );
-    // 러닝 화면이 자체 GPS 스트림을 쓰므로 미리보기 스트림은 잠시 끕니다.
+    // 러닝 화면이 자체 GPS 스트림을 쓰므로 미리보기와 홈 지도 카드의 스트림을 먼저 끕니다.
+    runningLocationActive.value = true;
     await _positionSub?.cancel();
     _positionSub = null;
     if (!mounted) return;
@@ -288,6 +294,8 @@ class _RunningHomePageState extends State<RunningHomePage> {
         ),
       ),
     );
+    // 러닝이 끝나 결과 화면으로 넘어갔거나 홈으로 돌아왔습니다.
+    runningLocationActive.value = false;
     if (!mounted) return;
     setState(() => _countingDown = false);
     _startLocation();
