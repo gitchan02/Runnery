@@ -56,6 +56,10 @@ abstract final class RunningConfig {
   /// 자동 일시정지: 이만큼 움직임이 없으면 운동 시간을 멈춥니다.
   static const autoPauseAfter = Duration(seconds: 10);
 
+  /// 정확한 좌표가 이 안에 들어왔을 때만 '신호가 좋다'고 보고 자동 일시정지를 판단합니다.
+  /// 실내처럼 GPS가 안 잡히면 멈춘 건지 알 수 없으므로 시간을 계속 잽니다.
+  static const goodSignalWithin = Duration(seconds: 5);
+
   /// 이 속도(m/s, 약 시속 1.8km) 이상으로 움직인 좌표를 '움직임'으로 봅니다. 천천히 걷기도 포함됩니다.
   static const movingMetersPerSecond = 0.5;
 
@@ -553,6 +557,10 @@ class RunningSession extends ChangeNotifier {
   bool _autoPaused = false;
   late DateTime _lastMovedAt = _now();
 
+  /// 마지막으로 정확도 기준을 통과한 좌표의 시각과 그 순간 속도(m/s, 모르면 null).
+  DateTime? _lastGoodFixAt;
+  double? _lastGoodSpeed;
+
   /// 경로 문제 원인을 가리기 위한 진단 기록(기록 파일에만 저장).
   final diagnostics = RunningDiagnostics();
 
@@ -624,8 +632,20 @@ class RunningSession extends ChangeNotifier {
   /// 움직임 없이 [RunningConfig.autoPauseAfter]가 지나면 운동 시간을 멈춥니다.
   /// 위치가 아예 안 들어오는 동안(터널 등)도 멈췄다가, 다시 움직임이 잡히면 이어서 잽니다.
   void _checkAutoPause() {
-    if (!autoPause || _status != RunningStatus.running || _autoPaused) return;
-    if (_now().difference(_lastMovedAt) < RunningConfig.autoPauseAfter) {
+    if (!autoPause || _status != RunningStatus.running) return;
+    final goodFix = _lastGoodFixAt;
+    final signalGood =
+        goodFix != null &&
+        _now().difference(goodFix) <= RunningConfig.goodSignalWithin;
+    if (_autoPaused) {
+      // 멈춘 사이 신호가 끊겼으면 멈춰 있는지 알 수 없으니 다시 시간을 잽니다.
+      if (!signalGood) _autoResume();
+      return;
+    }
+    // 신호가 좋고, 좌표가 멈춰 있음을 보여 줄 때만 멈춥니다(실내 등 신호가 나쁘면 멈추지 않음).
+    if (!signalGood ||
+        (_lastGoodSpeed ?? 0) >= RunningConfig.movingMetersPerSecond ||
+        _now().difference(_lastMovedAt) < RunningConfig.autoPauseAfter) {
       return;
     }
     _stopwatch.stop();
@@ -705,6 +725,8 @@ class RunningSession extends ChangeNotifier {
       return diagnostics.accuracyDropped(p.accuracy);
     }
     diagnostics.accuracyOk();
+    _lastGoodFixAt = _now();
+    _lastGoodSpeed = p.speed >= 0 ? p.speed : null;
     final anchor = _anchor;
     if (anchor == null) return _setAnchor(p);
 

@@ -232,8 +232,9 @@ void main() {
     session.addPosition(at(10, speed: 2));
     expect(session.distanceMeters, closeTo(10, .5));
 
-    // 11초 동안 움직임이 없으면 자동 일시정지.
+    // 신호가 좋은 채로(정확한 좌표가 계속 들어옴) 11초 동안 제자리면 자동 일시정지.
     clock = clock.add(const Duration(seconds: 11));
+    session.addPosition(at(10.5, speed: 0));
     session.checkAutoPause();
     expect(session.autoPaused, isTrue);
     expect(session.status, gps.RunningStatus.running);
@@ -250,6 +251,46 @@ void main() {
     expect(session.autoPaused, isFalse);
     expect(session.distanceMeters, closeTo(13, .5));
     expect(session.segments, hasLength(1));
+    session.dispose();
+  });
+
+  test('auto pause waits when GPS is lost indoors', () {
+    var clock = DateTime(2026, 10, 11, 8);
+    final session = gps.RunningSession(
+      weightKg: 65,
+      autoPause: true,
+      now: () => clock,
+    );
+    Position at({required double accuracy, double speed = 0}) => Position(
+      latitude: 37.5,
+      longitude: 127,
+      timestamp: clock,
+      accuracy: accuracy,
+      altitude: 0,
+      altitudeAccuracy: 0,
+      heading: 0,
+      headingAccuracy: 0,
+      speed: speed,
+      speedAccuracy: 0,
+    );
+    session.startWithoutGps();
+    session.addPosition(at(accuracy: 5));
+    // 실내: 좌표가 아예 안 오거나 오차가 커서 버려지면 멈췄는지 알 수 없으므로 시간을 계속 잽니다.
+    clock = clock.add(const Duration(seconds: 20));
+    session.addPosition(at(accuracy: 60));
+    session.checkAutoPause();
+    expect(session.autoPaused, isFalse);
+
+    // 밖으로 나와 신호가 좋은데 멈춰 있으면 그때 멈춥니다.
+    clock = clock.add(const Duration(seconds: 1));
+    session.addPosition(at(accuracy: 5));
+    session.checkAutoPause();
+    expect(session.autoPaused, isTrue);
+
+    // 멈춘 채로 다시 신호가 끊기면 시간을 다시 잽니다.
+    clock = clock.add(const Duration(seconds: 6));
+    session.checkAutoPause();
+    expect(session.autoPaused, isFalse);
     session.dispose();
   });
 
