@@ -53,6 +53,16 @@ abstract final class RunningConfig {
   /// 속도 계산 구간. 몇 m씩 흔들리는 GPS 오차가 그래프·최고 속도·칼로리를 튀게 하지 않도록 묶습니다.
   static const speedWindow = Duration(seconds: 10);
 
+  /// 자동 일시정지: 이만큼 움직임이 없으면 운동 시간을 멈춥니다.
+  static const autoPauseAfter = Duration(seconds: 10);
+
+  /// 이 속도(m/s, 약 시속 1.8km) 이상으로 움직인 좌표를 '움직임'으로 봅니다. 천천히 걷기도 포함됩니다.
+  static const movingMetersPerSecond = 0.5;
+
+  /// 자동 일시정지 중 이 속도 이상이거나 멈춘 곳에서 이만큼 벗어나면 다시 시간을 잽니다.
+  static const autoResumeMetersPerSecond = 0.8;
+  static const autoResumeMeters = 10.0;
+
   /// 이 속도(분속 134m ≈ 시속 8km) 미만은 걷기, 이상은 달리기 공식으로 칼로리를 계산합니다.
   static const walkRunThresholdMetersPerMinute = 134.0;
 }
@@ -513,9 +523,18 @@ class RunningDiagnostics {
 
 /// 진행 중인 러닝. GPS 좌표를 걸러 거리를 누적하고 운동 시간을 잽니다.
 class RunningSession extends ChangeNotifier {
-  RunningSession({required this.weightKg});
+  RunningSession({
+    required this.weightKg,
+    this.autoPause = false,
+    @visibleForTesting DateTime Function()? now,
+  }) : _now = now ?? DateTime.now;
+
+  final DateTime Function() _now;
 
   final double weightKg;
+
+  /// 멈춰 서 있는 동안 운동 시간만 자동으로 멈춥니다. 위치·거리 기록은 그대로 이어집니다.
+  final bool autoPause;
   final _stopwatch = Stopwatch();
   final List<List<TrackPoint>> _segments = [[]];
   final List<TrackPoint> _pausePoints = [];
@@ -531,11 +550,16 @@ class RunningSession extends ChangeNotifier {
   double _meters = 0;
   double _activeKcal = 0;
   Object? _gpsError;
+  bool _autoPaused = false;
+  late DateTime _lastMovedAt = _now();
 
   /// 경로 문제 원인을 가리기 위한 진단 기록(기록 파일에만 저장).
   final diagnostics = RunningDiagnostics();
 
   RunningStatus get status => _status;
+
+  /// 자동 일시정지 중인지. 이때 [status]는 running 그대로이고 운동 시간만 멈춰 있습니다.
+  bool get autoPaused => _autoPaused;
   DateTime? get startedAt => _startedAt;
 
   /// 정확도와 무관한 최신 좌표. 지도·GPS 칩용.
@@ -573,16 +597,51 @@ class RunningSession extends ChangeNotifier {
           onDone: () => diagnostics.event('streamClosed'),
         );
     _stopwatch.start();
+    _lastMovedAt = _now();
     // 초 단위 표시가 건너뛰지 않도록 1초보다 짧게 갱신합니다.
-    _ticker = Timer.periodic(
-      const Duration(milliseconds: 500),
-      (_) => notifyListeners(),
-    );
+    _ticker = Timer.periodic(const Duration(milliseconds: 500), (_) {
+      _checkAutoPause();
+      notifyListeners();
+    });
     _status = RunningStatus.running;
+  }
+
+  /// 테스트용: GPS 없이 달리는 중 상태로 만들고 좌표를 직접 넣습니다.
+  @visibleForTesting
+  void startWithoutGps() {
+    _startedAt = _now();
+    _stopwatch.start();
+    _lastMovedAt = _now();
+    _status = RunningStatus.running;
+  }
+
+  @visibleForTesting
+  void addPosition(Position p) => _onPosition(p);
+
+  @visibleForTesting
+  void checkAutoPause() => _checkAutoPause();
+
+  /// 움직임 없이 [RunningConfig.autoPauseAfter]가 지나면 운동 시간을 멈춥니다.
+  /// 위치가 아예 안 들어오는 동안(터널 등)도 멈췄다가, 다시 움직임이 잡히면 이어서 잽니다.
+  void _checkAutoPause() {
+    if (!autoPause || _status != RunningStatus.running || _autoPaused) return;
+    if (_now().difference(_lastMovedAt) < RunningConfig.autoPauseAfter) {
+      return;
+    }
+    _stopwatch.stop();
+    _autoPaused = true;
+    diagnostics.event('autoPause');
+  }
+
+  void _autoResume() {
+    _autoPaused = false;
+    _stopwatch.start();
+    diagnostics.event('autoResume');
   }
 
   void pause() {
     if (_status != RunningStatus.running) return;
+    _autoPaused = false;
     _stopwatch.stop();
     _pausedAt = DateTime.now();
     final p = _lastPosition;
@@ -600,6 +659,7 @@ class RunningSession extends ChangeNotifier {
     if (_segments.last.isNotEmpty) _segments.add([]);
     _pausedAt = null;
     _stopwatch.start();
+    _lastMovedAt = _now();
     diagnostics.event('resume');
     _status = RunningStatus.running;
     notifyListeners();
@@ -662,6 +722,21 @@ class RunningSession extends ChangeNotifier {
     );
     // 기준점을 유지하므로 천천히 움직여도 3m를 넘는 순간 한꺼번에 더해집니다.
     if (meters < RunningConfig.minSegmentMeters) return;
+
+    // 자동 일시정지 중에는 제자리 흔들림을 거리로 더하지 않고, 확실히 움직일 때만 다시 시간을 잽니다.
+    // 기준점(멈춘 곳)은 그대로 두므로 다시 움직이면 멈춘 곳부터 거리가 이어집니다.
+    final doppler = p.speed >= 0 ? p.speed : null;
+    if (_autoPaused) {
+      final moving =
+          (doppler ?? 0) >= RunningConfig.autoResumeMetersPerSecond ||
+          meters >= RunningConfig.autoResumeMeters;
+      if (!moving) return;
+      _autoResume();
+    }
+    if ((doppler ?? meters / seconds) >= RunningConfig.movingMetersPerSecond ||
+        meters / seconds >= RunningConfig.movingMetersPerSecond) {
+      _lastMovedAt = _now();
+    }
 
     if (meters / seconds > RunningConfig.maxSpeedMetersPerSecond) {
       diagnostics.droppedOutlier++;
@@ -742,7 +817,8 @@ class RunningStartPage extends StatefulWidget {
 class _RunningStartPageState extends State<RunningStartPage> {
   static const _zoom = MapZoom.running;
 
-  final _session = RunningSession(
+  late final _session = RunningSession(
+    autoPause: widget.options.autoPause,
     weightKg:
         AccountStore.instance.current?.weightKg ??
         RunningConfig.defaultWeightKg,
@@ -773,6 +849,7 @@ class _RunningStartPageState extends State<RunningStartPage> {
       ..addListener(_checkGoal)
       ..addListener(_updateLiveActivity)
       ..addListener(_announceKm)
+      ..addListener(_announceAutoPause)
       ..start();
     // '5킬로미터예요', '30분이에요': 거리는 받침이 없고 시간은 받침이 있습니다.
     final goal = _goalText;
@@ -812,7 +889,7 @@ class _RunningStartPageState extends State<RunningStartPage> {
   Map<String, Object?> _liveActivityState() => {
     'distanceKm': double.parse(RunningFormat.km(_session.distanceMeters)),
     'pace': RunningFormat.livePace(_session.paceSecondsPerKm),
-    'paused': _session.status == RunningStatus.paused,
+    'paused': _session.status == RunningStatus.paused || _session.autoPaused,
     'goal': widget.options.goalStatus(
       _session.distanceMeters,
       _session.elapsed,
@@ -835,6 +912,16 @@ class _RunningStartPageState extends State<RunningStartPage> {
     RunningMode.distanceGoal => RunningVoice.km(widget.options.goalKm),
     RunningMode.timeGoal => RunningGoal.minutes(widget.options.goalMinutes),
   };
+
+  bool _wasAutoPaused = false;
+
+  /// 자동 일시정지가 걸리고 풀릴 때 알려 줍니다.
+  void _announceAutoPause() {
+    final autoPaused = _session.autoPaused;
+    if (autoPaused == _wasAutoPaused) return;
+    _wasAutoPaused = autoPaused;
+    _say(autoPaused ? '자동 일시정지.' : '다시 측정합니다.');
+  }
 
   /// 1km마다 거리·시간·평균 페이스를 읽어 줍니다. 거리 목표면 남은 거리도 알려 줍니다.
   void _announceKm() {
@@ -1235,6 +1322,17 @@ class _RunningCard extends StatelessWidget {
           Row(
             children: [
               const Text('거리', style: _labelStyle),
+              if (session.autoPaused) ...[
+                const SizedBox(width: AppSpacing.space2),
+                const Text(
+                  '자동 일시정지',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.textPrimary,
+                  ),
+                ),
+              ],
               const Spacer(),
               if (options.voiceGuide && options.mode == RunningMode.free)
                 const Text(

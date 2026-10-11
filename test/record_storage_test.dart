@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:maplibre_gl/maplibre_gl.dart';
 import 'package:runnery_new/home/running/running_start_page.dart' as gps;
 import 'package:runnery_new/record/data/record_from_session.dart';
@@ -204,6 +205,52 @@ void main() {
     expect(loaded.endPlace, unknownPlace);
     await store.update('missing', (r) => r.withMemo('x'));
     expect(await store.load(), hasLength(1));
+  });
+
+  test('auto pause stops only the clock and keeps distance continuous', () {
+    var clock = DateTime(2026, 10, 11, 8);
+    final session = gps.RunningSession(
+      weightKg: 65,
+      autoPause: true,
+      now: () => clock,
+    );
+    Position at(double north, {double speed = -1}) => Position(
+      latitude: 37.5 + north / 111000,
+      longitude: 127,
+      timestamp: clock,
+      accuracy: 5,
+      altitude: 0,
+      altitudeAccuracy: 0,
+      heading: 0,
+      headingAccuracy: 0,
+      speed: speed,
+      speedAccuracy: 0,
+    );
+    session.startWithoutGps();
+    session.addPosition(at(0));
+    clock = clock.add(const Duration(seconds: 5));
+    session.addPosition(at(10, speed: 2));
+    expect(session.distanceMeters, closeTo(10, .5));
+
+    // 11초 동안 움직임이 없으면 자동 일시정지.
+    clock = clock.add(const Duration(seconds: 11));
+    session.checkAutoPause();
+    expect(session.autoPaused, isTrue);
+    expect(session.status, gps.RunningStatus.running);
+
+    // 제자리 흔들림(4m, 속도 0)은 거리로 더하지 않고 계속 멈춰 있습니다.
+    clock = clock.add(const Duration(seconds: 20));
+    session.addPosition(at(14, speed: 0));
+    expect(session.autoPaused, isTrue);
+    expect(session.distanceMeters, closeTo(10, .5));
+
+    // 다시 걷기 시작하면 멈춘 곳부터 거리가 이어지고 시간도 다시 잽니다.
+    clock = clock.add(const Duration(seconds: 3));
+    session.addPosition(at(13, speed: 1.4));
+    expect(session.autoPaused, isFalse);
+    expect(session.distanceMeters, closeTo(13, .5));
+    expect(session.segments, hasLength(1));
+    session.dispose();
   });
 
   test('missing speed data does not become an invented maximum', () {
