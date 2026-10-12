@@ -67,6 +67,9 @@ abstract final class RunningConfig {
   static const autoResumeMetersPerSecond = 0.8;
   static const autoResumeMeters = 10.0;
 
+  /// 자동 일시정지 중 움직임이 이만큼 이어져야 다시 잽니다. 한 발짝 움직였다 멈추면 다시 재지 않습니다.
+  static const autoResumeAfter = Duration(seconds: 3);
+
   /// 이 속도(분속 134m ≈ 시속 8km) 미만은 걷기, 이상은 달리기 공식으로 칼로리를 계산합니다.
   static const walkRunThresholdMetersPerMinute = 134.0;
 }
@@ -559,6 +562,10 @@ class RunningSession extends ChangeNotifier {
 
   /// 마지막으로 정확도 기준을 통과한 좌표의 시각과 그 순간 속도(m/s, 모르면 null).
   DateTime? _lastGoodFixAt;
+
+  /// 자동 일시정지 중 움직임이 처음 잡힌 시각과 마지막으로 잡힌 시각. 움직임이 끊기면 지웁니다.
+  DateTime? _movingSince;
+  DateTime? _movingLastAt;
   double? _lastGoodSpeed;
 
   /// 경로 문제 원인을 가리기 위한 진단 기록(기록 파일에만 저장).
@@ -650,11 +657,13 @@ class RunningSession extends ChangeNotifier {
     }
     _stopwatch.stop();
     _autoPaused = true;
+    _movingSince = _movingLastAt = null;
     diagnostics.event('autoPause');
   }
 
   void _autoResume() {
     _autoPaused = false;
+    _movingSince = _movingLastAt = null;
     // 다시 움직인 순간부터 10초를 새로 셉니다. 안 그러면 멈춰 있던 시간 때문에 곧바로 다시 멈춥니다.
     _lastMovedAt = _now();
     _stopwatch.start();
@@ -744,19 +753,33 @@ class RunningSession extends ChangeNotifier {
       p.latitude,
       p.longitude,
     );
-    // 기준점을 유지하므로 천천히 움직여도 3m를 넘는 순간 한꺼번에 더해집니다.
-    if (meters < RunningConfig.minSegmentMeters) return;
-
-    // 자동 일시정지 중에는 제자리 흔들림을 거리로 더하지 않고, 확실히 움직일 때만 다시 시간을 잽니다.
+    // 자동 일시정지 중에는 제자리 흔들림을 거리로 더하지 않고, 움직임이 3초 이어질 때만 다시 시간을 잽니다.
     // 기준점(멈춘 곳)은 그대로 두므로 다시 움직이면 멈춘 곳부터 거리가 이어집니다.
+    // 3m 미만 좌표도 '멈췄다'는 신호이므로 거리 기준보다 먼저 봅니다.
     final doppler = p.speed >= 0 ? p.speed : null;
     if (_autoPaused) {
       final moving =
           (doppler ?? 0) >= RunningConfig.autoResumeMetersPerSecond ||
           meters >= RunningConfig.autoResumeMeters;
-      if (!moving) return;
+      if (!moving) {
+        _movingSince = _movingLastAt = null;
+        return;
+      }
+      // 움직임 사이에 좌표가 한동안 안 왔으면 이어진 움직임으로 보지 않고 다시 셉니다.
+      final last = _movingLastAt;
+      if (last == null ||
+          _now().difference(last) > RunningConfig.autoResumeAfter) {
+        _movingSince = _now();
+      }
+      _movingLastAt = _now();
+      if (_now().difference(_movingSince!) < RunningConfig.autoResumeAfter) {
+        return;
+      }
       _autoResume();
     }
+
+    // 기준점을 유지하므로 천천히 움직여도 3m를 넘는 순간 한꺼번에 더해집니다.
+    if (meters < RunningConfig.minSegmentMeters) return;
     if ((doppler ?? meters / seconds) >= RunningConfig.movingMetersPerSecond ||
         meters / seconds >= RunningConfig.movingMetersPerSecond) {
       _lastMovedAt = _now();
