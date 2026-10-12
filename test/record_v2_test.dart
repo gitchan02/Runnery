@@ -6,6 +6,46 @@ import 'package:runnery_new/record/list/detail/record_detail_page.dart';
 import 'package:runnery_new/record/record_calendar_page.dart';
 
 void main() {
+  testWidgets('select mode deletes several records at once', (tester) async {
+    tester.view.physicalSize = const Size(390, 1600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final store = _MemoryStore();
+    final now = DateTime.now();
+    for (var i = 0; i < 3; i++) {
+      await store.save(
+        RunningRecord(
+          id: 'run$i',
+          startedAt: DateTime(now.year, now.month, 1, 8 + i),
+          distanceKm: i + 1.0,
+          movingSeconds: 600,
+          calories: 50,
+          route: const [],
+        ),
+      );
+    }
+    await tester.pumpWidget(MaterialApp(home: RecordListPageV2(store: store)));
+    await tester.pumpAndSettle();
+    expect(find.text('3회 러닝'), findsOneWidget);
+
+    await tester.tap(find.text('선택'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('1.00 km', findRichText: true));
+    await tester.tap(find.text('2.00 km', findRichText: true));
+    await tester.pumpAndSettle();
+    expect(find.text('2개 선택됨'), findsOneWidget);
+    await tester.tap(find.text('2개 삭제'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('2개를 삭제할까요?'), findsOneWidget);
+    await tester.tap(find.widgetWithText(TextButton, '삭제'));
+    await tester.pumpAndSettle();
+
+    expect((await store.load()).map((r) => r.id), ['run2']);
+    expect(find.text('1회 러닝'), findsOneWidget);
+    expect(find.text('러닝 기록'), findsOneWidget);
+  });
+
   testWidgets('store records load on entry and refresh after saving', (
     tester,
   ) async {
@@ -151,6 +191,12 @@ class _MemoryStore extends RunningRecordStore {
   @override
   Future<void> save(RunningRecord record) async {
     _records.add(record);
+    notifyListeners();
+  }
+
+  @override
+  Future<void> delete(String id) async {
+    _records.removeWhere((r) => r.id == id);
     notifyListeners();
   }
 }

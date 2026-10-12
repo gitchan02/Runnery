@@ -42,6 +42,44 @@ class _RecordListPageV2State extends State<RecordListPageV2> {
   Object? _error;
   // 스와이프로 지운 기록은 저장소를 다시 읽기 전에도 바로 목록에서 뺍니다.
   final _deleted = <String>{};
+
+  /// 선택 삭제 모드와 고른 기록.
+  bool _selecting = false;
+  final _selected = <String>{};
+
+  void _setSelecting(bool value) => setState(() {
+    _selecting = value;
+    _selected.clear();
+  });
+
+  void _toggleSelected(RunningRecord r) => setState(() {
+    if (!_selected.remove(r.id)) _selected.add(r.id);
+  });
+
+  /// 고른 기록을 한 번에 지웁니다. 일부가 실패하면 지운 것만 목록에서 빼고 알려 줍니다.
+  Future<void> _deleteSelected() async {
+    final ids = _selected.toList();
+    if (ids.isEmpty || !await confirmRecordDelete(context, count: ids.length)) {
+      return;
+    }
+    var failed = 0;
+    for (final id in ids) {
+      try {
+        await _store.delete(id);
+        _deleted.add(id);
+      } catch (_) {
+        failed++;
+      }
+    }
+    if (!mounted) return;
+    _setSelecting(false);
+    if (failed > 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('기록 $failed개를 삭제하지 못했어요. 다시 시도해 주세요.')),
+      );
+    }
+  }
+
   List<RunningRecord> get records => (widget.records ?? _saved)
       .where((r) => !_deleted.contains(r.id))
       .toList();
@@ -136,7 +174,11 @@ class _RecordListPageV2State extends State<RecordListPageV2> {
     ),
     child: Scaffold(
       backgroundColor: recordBackground,
-      bottomNavigationBar: widget.showNavigation ? _navigation() : null,
+      bottomNavigationBar: _selecting
+          ? _selectionBar()
+          : widget.showNavigation
+          ? _navigation()
+          : null,
       body: SafeArea(
         bottom: false,
         child: Align(
@@ -149,7 +191,24 @@ class _RecordListPageV2State extends State<RecordListPageV2> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Text('러닝 기록', style: recordText(26, weight: FontWeight.w800)),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          _selecting ? '${_selected.length}개 선택됨' : '러닝 기록',
+                          style: recordText(26, weight: FontWeight.w800),
+                        ),
+                      ),
+                      if (!calendar && records.isNotEmpty)
+                        TextButton(
+                          onPressed: () => _setSelecting(!_selecting),
+                          style: TextButton.styleFrom(
+                            foregroundColor: Colors.white,
+                          ),
+                          child: Text(_selecting ? '취소' : '선택'),
+                        ),
+                    ],
+                  ),
                   const SizedBox(height: 20),
                   Container(
                     height: 40,
@@ -238,7 +297,11 @@ class _RecordListPageV2State extends State<RecordListPageV2> {
         borderRadius: BorderRadius.circular(24),
         child: InkWell(
           borderRadius: BorderRadius.circular(24),
-          onTap: () => setState(() => calendar = value),
+          onTap: () => setState(() {
+            calendar = value;
+            _selecting = false;
+            _selected.clear();
+          }),
           child: Center(
             child: Text(
               label,
@@ -404,46 +467,48 @@ class _RecordListPageV2State extends State<RecordListPageV2> {
     return '${first.month}월 ${first.day}일 – ${last.month != first.month ? '${last.month}월 ' : ''}${last.day}일';
   }
 
-  /// 왼쪽으로 밀면 삭제 확인 창을 띄웁니다.
-  Widget _recordTile(RunningRecord r) => Dismissible(
-    key: ValueKey('record-${r.id}'),
-    direction: DismissDirection.endToStart,
-    background: Container(
-      alignment: Alignment.centerRight,
-      padding: const EdgeInsets.only(right: 20),
-      color: recordDelete,
-      child: const Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(Icons.delete_outline, color: Colors.white),
-          SizedBox(height: 4),
-          Text(
-            '삭제',
-            style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700),
+  /// 왼쪽으로 밀면 삭제 확인 창을 띄웁니다. 선택 모드에서는 밀어서 지우기를 쓰지 않습니다.
+  Widget _recordTile(RunningRecord r) => _selecting
+      ? _recordContent(r)
+      : Dismissible(
+          key: ValueKey('record-${r.id}'),
+          direction: DismissDirection.endToStart,
+          background: Container(
+            alignment: Alignment.centerRight,
+            padding: const EdgeInsets.only(right: 20),
+            color: recordDelete,
+            child: const Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.delete_outline, color: Colors.white),
+                SizedBox(height: 4),
+                Text(
+                  '삭제',
+                  style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700),
+                ),
+              ],
+            ),
           ),
-        ],
-      ),
-    ),
-    confirmDismiss: (_) async {
-      if (!await confirmRecordDelete(context)) return false;
-      try {
-        await _store.delete(r.id);
-        return true;
-      } catch (_) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('기록 삭제에 실패했습니다. 다시 시도해 주세요.')),
-          );
-        }
-        return false;
-      }
-    },
-    onDismissed: (_) => setState(() => _deleted.add(r.id)),
-    child: _recordContent(r),
-  );
+          confirmDismiss: (_) async {
+            if (!await confirmRecordDelete(context)) return false;
+            try {
+              await _store.delete(r.id);
+              return true;
+            } catch (_) {
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('기록 삭제에 실패했습니다. 다시 시도해 주세요.')),
+                );
+              }
+              return false;
+            }
+          },
+          onDismissed: (_) => setState(() => _deleted.add(r.id)),
+          child: _recordContent(r),
+        );
 
   Widget _recordContent(RunningRecord r) => InkWell(
-    onTap: () => _openRecord(r),
+    onTap: () => _selecting ? _toggleSelected(r) : _openRecord(r),
     child: Container(
       padding: const EdgeInsets.symmetric(vertical: 16),
       decoration: const BoxDecoration(
@@ -456,7 +521,26 @@ class _RecordListPageV2State extends State<RecordListPageV2> {
             height: 88,
             // 기록마다 실제 지도를 띄우면 지도가 여러 개 겹쳐 화면을 넘길 때 잔상이 남습니다.
             // 그래서 지도는 한 번 사진으로 만들어 두고 그 사진을 보여 줍니다.
-            child: RecordRouteThumbnail(record: r),
+            child: Stack(
+              children: [
+                Positioned.fill(child: RecordRouteThumbnail(record: r)),
+                if (_selecting)
+                  Positioned(
+                    left: 6,
+                    top: 6,
+                    child: Icon(
+                      _selected.contains(r.id)
+                          ? Icons.check_circle
+                          : Icons.radio_button_unchecked,
+                      color: Colors.white,
+                      size: 24,
+                      semanticLabel: _selected.contains(r.id)
+                          ? '선택됨'
+                          : '선택 안 됨',
+                    ),
+                  ),
+              ],
+            ),
           ),
           const SizedBox(width: 16),
           Expanded(
@@ -501,11 +585,63 @@ class _RecordListPageV2State extends State<RecordListPageV2> {
             ),
           ),
           const SizedBox(width: 8),
-          const Icon(Icons.chevron_right, size: 17, color: recordMuted),
+          if (!_selecting)
+            const Icon(Icons.chevron_right, size: 17, color: recordMuted),
         ],
       ),
     ),
   );
+
+  /// 선택 모드 하단: 이번 달 전체 선택과 삭제 버튼.
+  Widget _selectionBar() {
+    final ids = monthly.map((r) => r.id).toSet();
+    final all = ids.isNotEmpty && _selected.containsAll(ids);
+    return Container(
+      decoration: const BoxDecoration(
+        color: recordBackground,
+        border: Border(top: BorderSide(color: recordLine)),
+      ),
+      child: SafeArea(
+        top: false,
+        minimum: const EdgeInsets.fromLTRB(20, 10, 20, 10),
+        child: Row(
+          children: [
+            TextButton(
+              onPressed: () => setState(() {
+                if (all) {
+                  _selected.removeAll(ids);
+                } else {
+                  _selected.addAll(ids);
+                }
+              }),
+              style: TextButton.styleFrom(foregroundColor: Colors.white),
+              child: Text(all ? '전체 해제' : '이번 달 전체 선택'),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: SizedBox(
+                height: 48,
+                child: FilledButton.icon(
+                  onPressed: _selected.isEmpty ? null : _deleteSelected,
+                  style: FilledButton.styleFrom(
+                    backgroundColor: recordDelete,
+                    foregroundColor: Colors.white,
+                    disabledBackgroundColor: const Color(0xFF2A2C2E),
+                    shape: const StadiumBorder(),
+                  ),
+                  icon: const Icon(Icons.delete_outline, size: 18),
+                  label: Text(
+                    _selected.isEmpty ? '삭제' : '${_selected.length}개 삭제',
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _navigation() => Container(
     decoration: const BoxDecoration(
       border: Border(top: BorderSide(color: recordLine)),

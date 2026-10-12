@@ -469,13 +469,18 @@ class _RecordMapPainter extends CustomPainter {
 }
 
 /// 기록 삭제 전 확인 창. 목록 스와이프와 상세 메뉴가 함께 씁니다.
-Future<bool> confirmRecordDelete(BuildContext context) async =>
+/// [count]가 2 이상이면 선택한 기록 여러 개를 지울지 묻습니다.
+Future<bool> confirmRecordDelete(BuildContext context, {int count = 1}) async =>
     await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         backgroundColor: const Color(0xFF171818),
         title: const Text('기록 삭제'),
-        content: const Text('이 러닝 기록을 삭제할까요?\n삭제한 기록은 되돌릴 수 없어요.'),
+        content: Text(
+          count > 1
+              ? '선택한 러닝 기록 $count개를 삭제할까요?\n삭제한 기록은 되돌릴 수 없어요.'
+              : '이 러닝 기록을 삭제할까요?\n삭제한 기록은 되돌릴 수 없어요.',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
