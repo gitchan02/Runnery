@@ -21,6 +21,7 @@ import 'running_voice.dart';
 import 'running_result_page.dart';
 import '../../record/data/record_from_session.dart';
 import '../../record/data/record_places.dart';
+import '../../record/data/route_thumbnails.dart';
 import '../../record/data/running_record_store.dart';
 
 // ═════════════════════════════════════════════════════
@@ -1059,6 +1060,8 @@ class _RunningStartPageState extends State<RunningStartPage> {
           try {
             await RunningRecordStore.instance.save(saved);
             RecordPlaces.instance.fill(RunningRecordStore.instance, [saved]);
+            // 결과 화면을 보는 동안 목록용 지도 사진을 미리 만들어, 목록에 들어가면 바로 보이게 합니다.
+            RouteThumbnails.instance.get(saved);
             break;
           } catch (_) {
             if (!mounted) return;

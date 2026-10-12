@@ -24,8 +24,9 @@ class RouteThumbnails {
   /// 지도 사진은 한 장씩 만듭니다. 여러 장을 한꺼번에 만들면 지도 엔진이 무거워집니다.
   Future<void> _queue = Future.value();
 
-  /// 이번 실행에서 만들지 못한 기록(인터넷 없음 등). 다음 실행 때 다시 시도합니다.
-  final _failed = <String>{};
+  /// 지도 사진을 만들지 못한 기록과 그 시각(인터넷 없음 등). 잠시 뒤 목록을 다시 열면 다시 시도합니다.
+  final _failedAt = <String, DateTime>{};
+  static const _retryAfter = Duration(seconds: 30);
   final _making = <String, Future<File?>>{};
 
   static bool get _supported =>
@@ -37,7 +38,10 @@ class RouteThumbnails {
     if (!_supported || record.route.isEmpty) return null;
     final file = await _store.thumbnailFile(record.id);
     if (await file.exists()) return file;
-    if (_failed.contains(record.id)) return null;
+    final failedAt = _failedAt[record.id];
+    if (failedAt != null && DateTime.now().difference(failedAt) < _retryAfter) {
+      return null;
+    }
     return _making[record.id] ??= _make(
       record,
       file,
@@ -62,7 +66,7 @@ class RouteThumbnails {
       } catch (_) {
         // 지도 엔진 오류는 경로 그림으로 대신 보여 줍니다.
       }
-      _failed.add(record.id);
+      _failedAt[record.id] = DateTime.now();
       return null;
     });
     _queue = made.then<void>((_) {});
