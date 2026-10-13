@@ -257,11 +257,18 @@ void main() {
     expect(session.autoPaused, isTrue);
     expect(session.distanceMeters, closeTo(10, .5));
 
-    // 움직임이 3초 이어지면 다시 잽니다.
+    // 서 있는 동안 GPS가 10m 넘게 흔들려도 속도가 0이면 움직인 걸로 보지 않습니다.
     clock = clock.add(const Duration(seconds: 40));
     session.addPosition(at(25, speed: 0));
     expect(session.autoPaused, isTrue);
+
+    // 걷는 속도가 5초 이어지면 다시 잽니다.
+    clock = clock.add(const Duration(seconds: 1));
+    session.addPosition(at(26, speed: 1.4));
     clock = clock.add(const Duration(seconds: 3));
+    session.addPosition(at(28, speed: 1.4));
+    expect(session.autoPaused, isTrue);
+    clock = clock.add(const Duration(seconds: 2));
     session.addPosition(at(29, speed: 1.4));
     expect(session.autoPaused, isFalse);
     expect(session.distanceMeters, closeTo(29, .5));
@@ -308,6 +315,37 @@ void main() {
     // 멈춘 채로 다시 신호가 끊기면 시간을 다시 잽니다.
     clock = clock.add(const Duration(seconds: 6));
     session.checkAutoPause();
+    expect(session.autoPaused, isFalse);
+    session.dispose();
+  });
+
+  test('walking slowly does not auto pause while speed says moving', () {
+    var clock = DateTime(2026, 10, 12, 8);
+    final session = gps.RunningSession(
+      weightKg: 65,
+      autoPause: true,
+      now: () => clock,
+    );
+    Position at(double north, double speed) => Position(
+      latitude: 37.5 + north / 111000,
+      longitude: 127,
+      timestamp: clock,
+      accuracy: 5,
+      altitude: 0,
+      altitudeAccuracy: 0,
+      heading: 0,
+      headingAccuracy: 0,
+      speed: speed,
+      speedAccuracy: 0,
+    );
+    session.startWithoutGps();
+    // 위치는 1초에 0.25m씩만 바뀌고(굼뜬 위치) 속도는 걷는 속도와 '모름'(-1)이 번갈아 와도
+    // 15초 동안 멈추지 않습니다.
+    for (var i = 0; i <= 15; i++) {
+      session.addPosition(at(i * 0.25, i.isEven ? 1.2 : -1));
+      session.checkAutoPause();
+      clock = clock.add(const Duration(seconds: 1));
+    }
     expect(session.autoPaused, isFalse);
     session.dispose();
   });
