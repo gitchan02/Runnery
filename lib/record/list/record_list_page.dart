@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -89,6 +91,12 @@ class _RecordListPageV2State extends State<RecordListPageV2> {
     super.initState();
     _store.addListener(_reload);
     _reload();
+    // 다른 폰에서 올린 새 기록이 있는지 서버를 확인합니다(30초 안에 한 번 했으면 건너뜁니다).
+    if (widget.records == null) {
+      unawaited(
+        _store.syncNow(minAge: const Duration(seconds: 30)).catchError((Object _) {}),
+      );
+    }
   }
 
   Future<void> _reload() async {

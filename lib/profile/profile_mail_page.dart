@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -96,6 +97,26 @@ class _ProfileMailPageState extends State<ProfileMailPage> {
     }
   }
 
+  /// 서버에 못 올린 기록을 올려 보는 동안 진행 표시를 띄우고, 그래도 못 올린 기록 수를 돌려줍니다.
+  Future<int> _unsyncedWithSpinner() async {
+    final navigator = Navigator.of(context, rootNavigator: true);
+    unawaited(
+      showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => const PopScope(
+          canPop: false,
+          child: Center(child: CircularProgressIndicator()),
+        ),
+      ),
+    );
+    try {
+      return await _account.unsyncedRecordCount();
+    } finally {
+      navigator.pop();
+    }
+  }
+
   /// 실수로 눌러도 바로 로그아웃되지 않게 한 번 더 묻습니다.
   Future<void> _logout() async {
     final ok = await showDialog<bool>(
@@ -116,6 +137,33 @@ class _ProfileMailPageState extends State<ProfileMailPage> {
       ),
     );
     if (ok != true || !mounted) return;
+    // 서버에 아직 못 올린 러닝 기록이 있으면 먼저 올려 보고, 그래도 남으면 한 번 더 묻습니다.
+    if (_store.syncActive) {
+      final unsynced = await _unsyncedWithSpinner();
+      if (!mounted) return;
+      if (unsynced > 0) {
+        final force = await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('서버에 올리지 못한 기록이 있어요'),
+            content: Text(
+              '러닝 기록 $unsynced개를 서버에 올리지 못했어요. 지금 로그아웃하면 이 기록은 사라져요. 인터넷에 연결한 뒤에 로그아웃하는 걸 추천해요.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('취소'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text('그래도 로그아웃'),
+              ),
+            ],
+          ),
+        );
+        if (force != true || !mounted) return;
+      }
+    }
     await _account.logout();
     if (!mounted) return;
     Navigator.of(context).pushAndRemoveUntil<void>(

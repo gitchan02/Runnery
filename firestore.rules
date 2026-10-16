@@ -17,6 +17,27 @@ service cloud.firestore {
       return id.matches('^[a-z0-9_]{4,16}$');
     }
 
+    // 이메일 인증을 마친 계정인지(로그인 증표에 적혀 있습니다).
+    function verified() {
+      return request.auth.token.email_verified == true;
+    }
+
+    // 러닝 기록 문서의 모양. 기록 본문(경로 등)은 압축한 덩어리(payload) 하나로 올라오고,
+    // 지운 기록은 문서를 지우지 않고 deleted 표시만 남깁니다.
+    function validRecordDoc(d) {
+      return d.version == 1
+        && d.updatedAt == request.time
+        && d.deleted is bool
+        && (d.deleted
+          ? d.keys().hasOnly(['version', 'deleted', 'updatedAt'])
+          : (d.keys().hasOnly(['version', 'deleted', 'updatedAt', 'startedAt', 'distanceKm', 'payload'])
+            && d.keys().hasAll(['version', 'deleted', 'updatedAt', 'startedAt', 'distanceKm', 'payload'])
+            && d.startedAt is timestamp
+            && d.distanceKm is number
+            && d.payload is bytes
+            && d.payload.size() <= 950000));
+    }
+
     // 프로필 문서의 모양. 앱이 저장하는 값만 허용합니다.
     function validProfile(d) {
       return d.keys().hasOnly(['name', 'email', 'id', 'age', 'gender', 'weightKg', 'createdAt'])
@@ -48,6 +69,16 @@ service cloud.firestore {
         && getAfter(/databases/$(database)/documents/usernames/$(request.resource.data.id)).data.uid == uid;
 
       allow delete: if false;
+
+      // 러닝 기록: 이메일 인증을 마친 본인만 읽고 쓸 수 있습니다. 문서는 지우지 않습니다.
+      match /records/{recordId} {
+        allow get, list: if isOwner(uid) && verified();
+        allow create, update: if isOwner(uid)
+          && verified()
+          && recordId.matches('^[a-zA-Z0-9_-]{1,100}$')
+          && validRecordDoc(request.resource.data);
+        allow delete: if false;
+      }
     }
 
     // 아이디 중복 확인용. 아이디 하나당 문서 하나이고 주인(uid)만 적혀 있습니다.

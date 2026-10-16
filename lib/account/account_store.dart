@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -113,6 +114,7 @@ class AccountStore extends ChangeNotifier {
       _user = user;
       if (user != null && user.emailVerified) {
         await _loadProfile(user);
+        _startRecordSync(user);
       }
     } catch (_) {
       _user = null;
@@ -206,6 +208,15 @@ class AccountStore extends ChangeNotifier {
       if (data[key] != null) key: data[key],
   };
 
+  /// 로그인이 끝난 계정의 러닝 기록을 서버와 맞추기 시작합니다. 기다리지 않고 뒤에서 합니다.
+  void _startRecordSync(BackendUser user) {
+    unawaited(records.startSync(user.uid).catchError((Object _) {}));
+  }
+
+  /// 로그아웃하기 전에 쓰는 확인: 서버에 못 올린 러닝 기록을 올려 보고, 그래도 못 올린 기록 수를
+  /// 돌려줍니다. 0이 아니면 지금 로그아웃할 때 그 기록이 사라집니다.
+  Future<int> unsyncedRecordCount() => records.flushSync();
+
   /// 서버 계정을 만들고, 아이디를 차지하고, 프로필을 저장한 뒤 인증 메일을 보냅니다.
   /// 이 기기에 있던 예전 러닝 기록은 지웁니다. 이메일 인증을 마쳐야 로그인 상태가 됩니다.
   Future<void> register(RegistrationData data) async {
@@ -235,6 +246,7 @@ class AccountStore extends ChangeNotifier {
     _account = _toAccount(profile, user);
     _profiles[user.uid] = _plain(profile);
     await _writeLocal();
+    if (user.emailVerified) _startRecordSync(user);
     notifyListeners();
   }
 
@@ -267,6 +279,7 @@ class AccountStore extends ChangeNotifier {
         await _dropSession();
         rethrow;
       }
+      _startRecordSync(user);
     }
     notifyListeners();
   }
@@ -291,8 +304,9 @@ class AccountStore extends ChangeNotifier {
       return false;
     }
     _user = fresh;
-    if (fresh.emailVerified && _account == null) {
-      await _loadProfile(fresh);
+    if (fresh.emailVerified) {
+      if (_account == null) await _loadProfile(fresh);
+      _startRecordSync(fresh);
     }
     notifyListeners();
     return fresh.emailVerified;
@@ -390,12 +404,23 @@ class AccountStore extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// 로그아웃합니다. 러닝 기록과 프로필 사진은 이 기기에 그대로 두고, 프로필 복사본만 지웁니다.
+  /// 로그아웃합니다. 서버와 맞추던 러닝 기록은 서버에 있으므로 이 폰에서는 지워 다른 계정의 기록과
+  /// 섞이지 않게 하고(다시 로그인하면 서버에서 돌아옵니다), 프로필 복사본도 지웁니다.
+  /// 서버에 못 올린 기록이 있는지는 부르기 전에 [unsyncedRecordCount]로 확인합니다.
   Future<void> logout() async {
     final uid = _user?.uid;
+    final hadRecordSync = records.syncActive;
+    if (hadRecordSync) await records.stopSync();
     await backend.signOut();
     _user = null;
     _account = null;
+    if (hadRecordSync) {
+      try {
+        await records.clear();
+      } catch (_) {
+        // 지우지 못해도 로그아웃은 끝났습니다.
+      }
+    }
     if (uid != null && _profiles.remove(uid) != null) {
       try {
         await _writeLocal();
