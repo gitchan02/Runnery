@@ -66,10 +66,13 @@ abstract final class RunningConfig {
 
   /// 자동 일시정지 중 이 속도 이상이거나 멈춘 곳에서 이만큼 벗어나면 다시 시간을 잽니다.
   static const autoResumeMetersPerSecond = 0.8;
+
+  /// 아이폰이 현재 속도를 주지 않을 때(시뮬레이터 등)만 쓰는 거리 기준.
+  /// 서 있어도 GPS가 10m 넘게 흔들릴 수 있어, 속도를 알 때는 쓰지 않습니다.
   static const autoResumeMeters = 10.0;
 
   /// 자동 일시정지 중 움직임이 이만큼 이어져야 다시 잽니다. 한 발짝 움직였다 멈추면 다시 재지 않습니다.
-  static const autoResumeAfter = Duration(seconds: 3);
+  static const autoResumeAfter = Duration(seconds: 5);
 
   /// 이 속도(분속 134m ≈ 시속 8km) 미만은 걷기, 이상은 달리기 공식으로 칼로리를 계산합니다.
   static const walkRunThresholdMetersPerMinute = 134.0;
@@ -739,6 +742,12 @@ class RunningSession extends ChangeNotifier {
     diagnostics.accuracyOk();
     _lastGoodFixAt = _now();
     _lastGoodSpeed = p.speed >= 0 ? p.speed : null;
+    // 아이폰이 알려 주는 현재 속도가 걷는 속도 이상이면, 위치 변화가 굼떠도 움직이는 중으로 봅니다.
+    // (천천히 걷거나 모퉁이를 돌 때 위치가 3m씩 안 바뀌어 걷는 중에 멈추던 문제)
+    if (!_autoPaused &&
+        (_lastGoodSpeed ?? 0) >= RunningConfig.movingMetersPerSecond) {
+      _lastMovedAt = _now();
+    }
     final anchor = _anchor;
     if (anchor == null) return _setAnchor(p);
 
@@ -759,9 +768,9 @@ class RunningSession extends ChangeNotifier {
     // 3m 미만 좌표도 '멈췄다'는 신호이므로 거리 기준보다 먼저 봅니다.
     final doppler = p.speed >= 0 ? p.speed : null;
     if (_autoPaused) {
-      final moving =
-          (doppler ?? 0) >= RunningConfig.autoResumeMetersPerSecond ||
-          meters >= RunningConfig.autoResumeMeters;
+      final moving = doppler != null
+          ? doppler >= RunningConfig.autoResumeMetersPerSecond
+          : meters >= RunningConfig.autoResumeMeters;
       if (!moving) {
         _movingSince = _movingLastAt = null;
         return;
