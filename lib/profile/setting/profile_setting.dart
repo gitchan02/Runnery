@@ -81,12 +81,16 @@ class ProfileSettingPage extends StatelessWidget {
     required this.settings,
     this.onLogout,
     this.onEditProfile,
+    this.onChangePassword,
   });
   final ProfileSettings settings;
   final VoidCallback? onLogout;
 
   /// '개인 정보 수정'. 없으면 준비 중 안내를 띄웁니다.
   final VoidCallback? onEditProfile;
+
+  /// '비밀번호 변경'. 없으면 준비 중 안내를 띄웁니다.
+  final VoidCallback? onChangePassword;
 
   void _pending(BuildContext context, String label) {
     ScaffoldMessenger.of(context)
@@ -199,7 +203,8 @@ class ProfileSettingPage extends StatelessWidget {
                 _row(
                   '비밀번호 변경',
                   divider: false,
-                  onTap: () => _pending(context, '비밀번호 변경'),
+                  onTap:
+                      onChangePassword ?? () => _pending(context, '비밀번호 변경'),
                 ),
                 const SizedBox(height: 26),
                 _section('앱 정보'),

@@ -15,6 +15,7 @@ import '../record/models/running_record.dart';
 import '../record/list/record_list_page.dart';
 import '../record/list/detail/record_detail_page.dart' show RecordRouteMap;
 import 'edit/profile_edit_page.dart';
+import 'setting/change_password_page.dart';
 import 'setting/profile_setting.dart';
 
 /// 로그인한 계정(AccountStore)과 저장된 러닝 기록(RunningRecordStore)을 보여주는 내 정보.
@@ -80,6 +81,12 @@ class _ProfileMailPageState extends State<ProfileMailPage> {
     );
   }
 
+  void _changePassword() {
+    Navigator.of(context).push<void>(
+      MaterialPageRoute(builder: (_) => ChangePasswordPage(store: _account)),
+    );
+  }
+
   Future<void> _reload() async {
     try {
       final loaded = await _store.load();
@@ -89,7 +96,26 @@ class _ProfileMailPageState extends State<ProfileMailPage> {
     }
   }
 
+  /// 실수로 눌러도 바로 로그아웃되지 않게 한 번 더 묻습니다.
   Future<void> _logout() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('로그아웃할까요?'),
+        content: const Text('로그아웃하면 다시 이메일로 로그인해야 해요.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('취소'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('로그아웃'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
     await _account.logout();
     if (!mounted) return;
     Navigator.of(context).pushAndRemoveUntil<void>(
@@ -166,6 +192,7 @@ class _ProfileMailPageState extends State<ProfileMailPage> {
                         builder: (_) => ProfileSettingPage(
                           settings: settings,
                           onEditProfile: _editProfile,
+                          onChangePassword: _changePassword,
                           onLogout: widget.onLogout ?? _logout,
                         ),
                       ),

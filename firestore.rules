@@ -1,0 +1,74 @@
+rules_version = '2';
+
+// 러너리 Firestore 보안 규칙.
+// 원칙: 모든 데이터는 기본적으로 막고, 아래에 적은 것만 허용합니다. 규칙을 임의로 완화하지 않습니다.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(uid) {
+      return signedIn() && request.auth.uid == uid;
+    }
+
+    function validId(id) {
+      return id.matches('^[a-z0-9_]{4,16}$');
+    }
+
+    // 프로필 문서의 모양. 앱이 저장하는 값만 허용합니다.
+    function validProfile(d) {
+      return d.keys().hasOnly(['name', 'email', 'id', 'age', 'gender', 'weightKg', 'createdAt'])
+        && d.keys().hasAll(['name', 'email', 'id', 'age', 'gender', 'weightKg', 'createdAt'])
+        && d.name is string && d.name.size() >= 1 && d.name.size() <= 30
+        && d.email is string && d.email.size() <= 254
+        && d.id is string && validId(d.id)
+        && d.age is int && d.age >= 1 && d.age <= 120
+        && d.gender in ['여성', '남성', '선택 안 함']
+        && d.weightKg is number && d.weightKg >= 20 && d.weightKg <= 300;
+    }
+
+    // 사용자 프로필: 본인만 읽고 쓸 수 있습니다.
+    match /users/{uid} {
+      allow get: if isOwner(uid);
+      allow list: if false;
+
+      // 가입할 때: 프로필의 아이디는 같은 요청에서 차지한 아이디여야 합니다.
+      allow create: if isOwner(uid)
+        && validProfile(request.resource.data)
+        && request.resource.data.createdAt == request.time
+        && getAfter(/databases/$(database)/documents/usernames/$(request.resource.data.id)).data.uid == uid;
+
+      // 수정할 때: 가입일과 이메일은 바꿀 수 없고, 새 아이디도 같은 요청에서 차지해야 합니다.
+      allow update: if isOwner(uid)
+        && validProfile(request.resource.data)
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.email == resource.data.email
+        && getAfter(/databases/$(database)/documents/usernames/$(request.resource.data.id)).data.uid == uid;
+
+      allow delete: if false;
+    }
+
+    // 아이디 중복 확인용. 아이디 하나당 문서 하나이고 주인(uid)만 적혀 있습니다.
+    match /usernames/{id} {
+      // 가입 전에도 '이미 쓰는 아이디인지' 물어볼 수 있어야 하므로 한 건씩 읽는 것만 열어 둡니다.
+      allow get: if validId(id);
+      allow list: if false;
+
+      // 자기 프로필의 아이디로 정한 것만 차지할 수 있습니다(아이디 선점 방지).
+      allow create: if signedIn()
+        && validId(id)
+        && request.resource.data.keys().hasOnly(['uid'])
+        && request.resource.data.uid == request.auth.uid
+        && getAfter(/databases/$(database)/documents/users/$(request.auth.uid)).data.id == id;
+
+      allow update: if false;
+
+      // 내 프로필이 더 이상 이 아이디를 쓰지 않을 때만 놓을 수 있습니다.
+      allow delete: if signedIn()
+        && resource.data.uid == request.auth.uid
+        && getAfter(/databases/$(database)/documents/users/$(request.auth.uid)).data.id != id;
+    }
+  }
+}
