@@ -350,6 +350,58 @@ void main() {
     session.dispose();
   });
 
+  test('one GPS jump does not inflate max speed', () {
+    final start = DateTime(2026, 10, 16, 16);
+    var meters = 0.0;
+    // 1초마다 1.5m(시속 5.4km)로 걷다가 30초째에 한 번 40m 튐.
+    final points = [
+      for (var i = 0; i <= 60; i++)
+        gps.TrackPoint(
+          latLng: const LatLng(37.5, 127),
+          time: start.add(Duration(seconds: i)),
+          moving: Duration(seconds: i),
+          meters: meters += i == 0 ? 0 : (i == 30 ? 40 : 1.5),
+          accuracy: 14,
+        ),
+    ];
+    final run = gps.RunningRecord(
+      startedAt: start,
+      endedAt: start.add(const Duration(seconds: 60)),
+      distanceMeters: meters,
+      movingDuration: const Duration(seconds: 60),
+      weightKg: 65,
+      segments: [points],
+      pausePoints: const [],
+    );
+    expect(run.maxSpeedKmh, lessThan(8));
+  });
+
+  test('GPS jitter within the error radius does not zigzag the route', () {
+    final session = gps.RunningSession(weightKg: 65);
+    var clock = DateTime(2026, 10, 16, 16);
+    Position at(double east) => Position(
+      latitude: 37.5,
+      longitude: 127 + east / 88000,
+      timestamp: clock,
+      accuracy: 14,
+      altitude: 0,
+      altitudeAccuracy: 0,
+      heading: 0,
+      headingAccuracy: 0,
+      speed: 0,
+      speedAccuracy: 0,
+    );
+    session.startWithoutGps();
+    // 오차 ±14m에서 4~6m 흔들림은 점으로 찍지 않습니다(오차의 절반 7m 미만).
+    for (final east in [0.0, 5.0, -1.0, 4.0, 0.0, 6.0]) {
+      clock = clock.add(const Duration(seconds: 1));
+      session.addPosition(at(east));
+    }
+    expect(session.segments.single, hasLength(1));
+    expect(session.distanceMeters, 0);
+    session.dispose();
+  });
+
   test('missing speed data does not become an invented maximum', () {
     final r = record('no-speed', DateTime(2026));
     expect(r.toJson()['maxSpeedKmh'], isNull);

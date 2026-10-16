@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:geocoding/geocoding.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:maplibre_gl/maplibre_gl.dart' show LatLng;
+import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '../../account/account_store.dart';
 import '../../design_system/app_colors.dart';
@@ -41,6 +42,12 @@ abstract final class RunningConfig {
 
   /// 이보다 짧은 이동은 제자리 GPS 흔들림으로 보고 누적을 미룹니다.
   static const minSegmentMeters = 3.0;
+
+  /// GPS 오차가 클수록 점 사이 간격을 넓힙니다(오차의 절반, 최대 10m). 오차 ±14m에서 3m마다 점을 찍으면
+  /// 흔들림이 그대로 지그재그 경로가 됩니다.
+  static const maxSegmentMeters = 10.0;
+  static double segmentMetersFor(double accuracy) =>
+      (accuracy / 2).clamp(minSegmentMeters, maxSegmentMeters);
 
   /// 이보다 빠른 이동(약 43km/h)은 좌표 튐으로 보고 제외합니다.
   static const maxSpeedMetersPerSecond = 12.0;
@@ -347,17 +354,31 @@ class RunningRecord {
         }
         final elapsed = segment[i].moving - segment[j].moving;
         if (elapsed < RunningConfig.speedWindow) continue;
-        final meters = segment[i].meters - segment[j].meters;
+        // 10초 묶음 안의 점과 점 사이 속도 중 가운데 값. GPS가 한 번 튄 구간이 묶음 전체 속도를
+        // 끌어올려 최고 속도·그래프가 뻥튀기되지 않게 합니다.
+        final pairSpeeds = [
+          for (var k = j + 1; k <= i; k++)
+            if (segment[k].moving > segment[k - 1].moving)
+              (segment[k].meters - segment[k - 1].meters) /
+                  ((segment[k].moving - segment[k - 1].moving).inMilliseconds /
+                      1000),
+        ];
+        if (pairSpeeds.isEmpty) continue;
         samples.add(
-          SpeedSample(
-            segment[i].meters / 1000,
-            meters / (elapsed.inMilliseconds / 1000) * 3.6,
-          ),
+          SpeedSample(segment[i].meters / 1000, _median(pairSpeeds) * 3.6),
         );
       }
     }
     return samples;
   }();
+
+  static double _median(List<double> values) {
+    final sorted = [...values]..sort();
+    final mid = sorted.length ~/ 2;
+    return sorted.length.isOdd
+        ? sorted[mid]
+        : (sorted[mid - 1] + sorted[mid]) / 2;
+  }
 
   double? get maxSpeedKmh => speedSamples.isEmpty
       ? null
@@ -789,7 +810,7 @@ class RunningSession extends ChangeNotifier {
     }
 
     // 기준점을 유지하므로 천천히 움직여도 3m를 넘는 순간 한꺼번에 더해집니다.
-    if (meters < RunningConfig.minSegmentMeters) return;
+    if (meters < RunningConfig.segmentMetersFor(p.accuracy)) return;
     if ((doppler ?? meters / seconds) >= RunningConfig.movingMetersPerSecond ||
         meters / seconds >= RunningConfig.movingMetersPerSecond) {
       _lastMovedAt = _now();
@@ -900,7 +921,9 @@ class _RunningStartPageState extends State<RunningStartPage> {
   @override
   void initState() {
     super.initState();
-    // 화면이 꺼져도 위치를 계속 받으므로, 배터리를 아끼려고 화면을 억지로 켜 두지 않습니다.
+    // 달리는 중 기록을 보기 쉽도록 러닝 화면에서는 화면이 자동으로 꺼지지 않게 합니다.
+    // (화면을 직접 꺼도 위치는 계속 받습니다.)
+    WakelockPlus.enable();
     _session
       ..addListener(_followCamera)
       ..addListener(_checkGoal)
@@ -924,6 +947,7 @@ class _RunningStartPageState extends State<RunningStartPage> {
 
   @override
   void dispose() {
+    WakelockPlus.disable();
     _lifecycle.dispose();
     _liveActivity.end();
     _session.dispose();

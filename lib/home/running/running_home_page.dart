@@ -121,8 +121,11 @@ final runningLocationActive = ValueNotifier<bool>(false);
 LocationSettings runningLocationSettings({bool background = false}) =>
     switch (defaultTargetPlatform) {
       TargetPlatform.iOS => AppleSettings(
-        // bestForNavigation은 내비게이션용(충전 중 권장)이라 배터리를 많이 씁니다. 러닝에는 best로 충분합니다.
-        accuracy: LocationAccuracy.best,
+        // 러닝 중에는 움직임 센서까지 함께 써서 경로를 부드럽게 다듬는 내비게이션용 정확도를 씁니다.
+        // best로 낮췄더니 경로가 지그재그로 흔들렸습니다. 다른 화면은 배터리를 아끼려고 best를 씁니다.
+        accuracy: background
+            ? LocationAccuracy.bestForNavigation
+            : LocationAccuracy.best,
         activityType: ActivityType.fitness,
         pauseLocationUpdatesAutomatically: false,
         allowBackgroundLocationUpdates: background,
